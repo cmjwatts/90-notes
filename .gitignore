@@ -1,0 +1,14 @@
+node_modules/
+.env
+.env.local
+*.log
+.DS_Store
+dist/
+build/
+web/dist/
+server/dist/
+.vite/
+.idea/
+.vscode/
+*.tsbuildinfo
+coverage/

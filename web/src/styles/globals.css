@@ -1,0 +1,123 @@
+@import './tokens.css';
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+a { color: var(--brand); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+button { font-family: inherit; }
+
+@keyframes pulse {
+  50% { box-shadow: 0 0 0 5px var(--brand-tint); }
+}
+
+@keyframes dotPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.85); }
+}
+
+.wf {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Avatar placeholder used in transcript */
+.ph-avatar {
+  width: 28px; height: 28px;
+  border-radius: 999px;
+  background: var(--paper-3);
+  border: 1px solid var(--line);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink-2);
+  flex-shrink: 0;
+}
+
+/* Status pills */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 18px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid currentColor;
+  background: transparent;
+}
+.pill.dot::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.pill.auto    { color: var(--good); background: var(--good-tint); border-color: transparent; }
+.pill.pending { color: var(--warn); background: var(--warn-tint); border-color: transparent; }
+.pill.reject  { color: var(--bad);  background: var(--bad-tint);  border-color: transparent; }
+.pill.brand   { color: var(--brand); background: var(--brand-tint); border-color: transparent; }
+.pill.muted   { color: var(--ink-2); background: var(--paper-3); border-color: transparent; }
+
+/* Type chips */
+.type-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: var(--paper-3);
+  color: var(--ink-2);
+}
+
+/* Buttons */
+.btn {
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.btn:hover { border-color: var(--ink-3); }
+.btn.primary { background: var(--brand); color: white; border-color: var(--brand); }
+.btn.primary:hover { background: #267590; border-color: #267590; }
+.btn.ghost { border: none; background: transparent; color: var(--brand); font-weight: 600; padding: 4px 8px; }
+.btn.ghost:hover { background: var(--brand-tint); }
+.btn.danger { color: white; background: var(--ids-red-accent); border-color: var(--ids-red-accent); }
+
+/* Pane labels */
+.pane-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  padding: 10px 14px 6px;
+}
+
+/* Hand-written accent (Caveat) */
+.hand {
+  font-family: var(--hand);
+  color: var(--brand);
+}

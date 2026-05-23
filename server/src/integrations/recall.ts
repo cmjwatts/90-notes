@@ -1,0 +1,59 @@
+import { config } from '../config.js';
+
+const BASE = `https://${config.RECALL_REGION}.recall.ai/api/v1`;
+
+interface CreateBotInput {
+  meetingUrl: string;
+  botName: string;
+  meetingId: string; // our meeting ID, attached as bot metadata
+}
+
+interface CreateBotResponse {
+  id: string;             // Recall bot id
+  status_changes: Array<{ code: string; created_at: string }>;
+}
+
+/**
+ * Dispatch a Recall.ai bot to join a meeting. Sets up real-time transcript delivery
+ * to our webhook URL (see config.RECALL_WEBHOOK_URL).
+ */
+export async function dispatchRecallBot(input: CreateBotInput): Promise<CreateBotResponse> {
+  if (!config.RECALL_API_KEY) {
+    throw new Error('RECALL_API_KEY not configured — set it in .env before starting a meeting.');
+  }
+  const body = {
+    bot_name: input.botName,
+    meeting_url: input.meetingUrl,
+    metadata: { meeting_id: input.meetingId },
+    transcription_options: {
+      provider: 'meeting_captions', // free, decent quality. Swap to 'assembly_ai' or 'deepgram' for higher accuracy.
+    },
+    real_time_transcription: {
+      destination_url: config.RECALL_WEBHOOK_URL,
+      partial_results: true,
+    },
+    chat: { on_bot_join: { send_to: 'everyone', message: '90 notes is recording for Ninety. Items captured here flow into the workspace.' } },
+  };
+  const res = await fetch(`${BASE}/bot`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Token ${config.RECALL_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Recall.ai bot create failed (${res.status}): ${text}`);
+  }
+  return res.json() as Promise<CreateBotResponse>;
+}
+
+/** Tell Recall the bot should leave the meeting. */
+export async function leaveRecallBot(botId: string): Promise<void> {
+  if (!config.RECALL_API_KEY) return;
+  await fetch(`${BASE}/bot/${botId}/leave_call`, {
+    method: 'POST',
+    headers: { Authorization: `Token ${config.RECALL_API_KEY}` },
+  });
+}
