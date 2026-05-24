@@ -14,6 +14,12 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  listTeams() {
+    return req<{ teams: Array<{ id: string; name: string }> }>('/api/ninety/teams');
+  },
+  listPlaybooks() {
+    return req<{ playbooks: Array<{ id: string; name: string }> }>('/api/ninety/playbooks');
+  },
   startMeeting(body: { meetingUrl: string; teamId: string; playbookId: string; botName: string }) {
     return req<{ meetingId: string; botId: string }>('/api/meetings/start', { method: 'POST', body: JSON.stringify(body) });
   },

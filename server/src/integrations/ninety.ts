@@ -50,6 +50,20 @@ class NinetyClient {
     };
   }
 
+  // ----- TEAMS (used at meeting start + by the MeetingSetup dropdown) -----------------
+
+  async listTeams(): Promise<Array<{ id: string; name: string }>> {
+    // TODO_VERIFY: endpoint path. Common patterns: /teams, /workspaces/{id}/teams, /me/teams
+    const res = await fetch(`${config.NINETY_API_BASE}/teams`, { headers: this.headers() });
+    if (!res.ok) throw new Error(`Ninety list teams failed: ${res.status} ${await res.text()}`);
+    const json: any = await res.json();
+    const items: any[] = Array.isArray(json) ? json : (json.items ?? json.data ?? json.teams ?? []);
+    return items.map((t: any) => ({
+      id: t.id ?? t._id,
+      name: t.name ?? t.title ?? '(unnamed team)',
+    }));
+  }
+
   // ----- LIST (used to build the existing-items cache at meeting start) ---------------
 
   async listOpenIssues(teamId: string): Promise<ExistingItem[]> {

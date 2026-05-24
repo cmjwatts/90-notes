@@ -1,27 +1,42 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { api } from '../lib/api.ts';
 
-const TEAMS = [
-  { id: 'team-operations', name: 'Operations Team' },
-  { id: 'team-leadership', name: 'Leadership Team' },
-  { id: 'team-sales', name: 'Sales Team' },
-];
-
-const PLAYBOOKS = [
-  { id: 'pb-l10-ops', name: 'Operations Team L10' },
-  { id: 'pb-l10-leadership', name: 'Leadership L10' },
-  { id: 'pb-quarterly', name: 'Quarterly Planning' },
-];
+interface NamedRef { id: string; name: string }
 
 export function MeetingSetup() {
   const navigate = useNavigate();
+  const [teams, setTeams] = useState<NamedRef[]>([]);
+  const [playbooks, setPlaybooks] = useState<NamedRef[]>([]);
+  const [teamsErr, setTeamsErr] = useState<string | null>(null);
+  const [loadingTeams, setLoadingTeams] = useState(true);
+
   const [meetingUrl, setMeetingUrl] = useState('');
-  const [teamId, setTeamId] = useState(TEAMS[0]!.id);
-  const [playbookId, setPlaybookId] = useState(PLAYBOOKS[0]!.id);
+  const [teamId, setTeamId] = useState('');
+  const [playbookId, setPlaybookId] = useState('');
   const [botName, setBotName] = useState('90 notes');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const [t, p] = await Promise.all([api.listTeams(), api.listPlaybooks()]);
+        if (!active) return;
+        setTeams(t.teams);
+        setPlaybooks(p.playbooks);
+        if (t.teams[0]) setTeamId(t.teams[0].id);
+        if (p.playbooks[0]) setPlaybookId(p.playbooks[0].id);
+      } catch (e) {
+        if (!active) return;
+        setTeamsErr((e as Error).message);
+      } finally {
+        if (active) setLoadingTeams(false);
+      }
+    })();
+    return () => { active = false; };
+  }, []);
 
   async function onStart(e: React.FormEvent) {
     e.preventDefault();
@@ -109,24 +124,42 @@ export function MeetingSetup() {
 
           <div style={{ display: 'flex', gap: 14 }}>
             <Field label="Team" grow>
-              <select value={teamId} onChange={(e) => setTeamId(e.target.value)} style={inputStyle}>
-                {TEAMS.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
+              <select
+                value={teamId}
+                onChange={(e) => setTeamId(e.target.value)}
+                style={inputStyle}
+                disabled={loadingTeams || teams.length === 0}
+              >
+                {loadingTeams && <option>Loading from Ninety…</option>}
+                {!loadingTeams && teams.length === 0 && <option value="">(no teams found)</option>}
+                {teams.map((t) => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
                 ))}
               </select>
             </Field>
             <Field label="Playbook" grow>
               <select value={playbookId} onChange={(e) => setPlaybookId(e.target.value)} style={inputStyle}>
-                {PLAYBOOKS.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
+                {playbooks.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
               </select>
             </Field>
           </div>
+
+          {teamsErr && (
+            <div
+              style={{
+                fontSize: 11.5,
+                color: 'var(--warn)',
+                background: 'var(--warn-tint)',
+                padding: '8px 10px',
+                borderRadius: 'var(--r-sm)',
+                borderLeft: '2px solid var(--warn)',
+              }}
+            >
+              Couldn't load teams from Ninety: <strong>{teamsErr}</strong>. The Ninety API endpoint or auth probably needs verification (Phase 0). Meeting will still try to start — but items won't write to Ninety until this resolves.
+            </div>
+          )}
 
           <Field label="Bot name (shown to attendees)">
             <input value={botName} onChange={(e) => setBotName(e.target.value)} style={inputStyle} />

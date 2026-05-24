@@ -8,13 +8,15 @@ create extension if not exists "pgcrypto";
 create table if not exists meetings (
   id            uuid primary key default gen_random_uuid(),
   team_id       text not null,
-  playbook_id   uuid,
+  playbook_id   text,                       -- slug like "pb-l10-leadership" until Playbook Editor exists
   recall_bot_id text,
   meeting_url   text not null,
   status        text not null default 'pending', -- pending | live | ended | failed
   created_at    timestamptz not null default now(),
   ended_at      timestamptz
 );
+-- For existing databases created before this change, run:
+-- alter table meetings alter column playbook_id type text;
 create index if not exists idx_meetings_status on meetings(status);
 
 -- ───────── Playbooks ────────────────────────────────────────────────────────────
