@@ -15,7 +15,10 @@ interface CreateBotResponse {
 
 /**
  * Dispatch a Recall.ai bot to join a meeting. Sets up real-time transcript delivery
- * to our webhook URL (see config.RECALL_WEBHOOK_URL).
+ * to our webhook URL.
+ *
+ * Schema verified against https://docs.recall.ai/docs/bot-real-time-transcription.md
+ * (current shape: recording_config.transcript.provider + recording_config.realtime_endpoints).
  */
 export async function dispatchRecallBot(input: CreateBotInput): Promise<CreateBotResponse> {
   if (!config.RECALL_API_KEY) {
@@ -25,16 +28,26 @@ export async function dispatchRecallBot(input: CreateBotInput): Promise<CreateBo
     bot_name: input.botName,
     meeting_url: input.meetingUrl,
     metadata: { meeting_id: input.meetingId },
-    transcription_options: {
-      provider: 'meeting_captions', // free, decent quality. Swap to 'assembly_ai' or 'deepgram' for higher accuracy.
+    recording_config: {
+      transcript: {
+        provider: {
+          // Recall's built-in streaming transcription — fastest, no third-party setup required.
+          recallai_streaming: {
+            mode: 'prioritize_low_latency' as const,
+            language_code: 'en' as const,
+          },
+        },
+      },
+      realtime_endpoints: [
+        {
+          type: 'webhook' as const,
+          url: config.RECALL_WEBHOOK_URL,
+          events: ['transcript.data', 'transcript.partial_data'],
+        },
+      ],
     },
-    real_time_transcription: {
-      destination_url: config.RECALL_WEBHOOK_URL,
-      partial_results: true,
-    },
-    chat: { on_bot_join: { send_to: 'everyone', message: '90 notes is recording for Ninety. Items captured here flow into the workspace.' } },
   };
-  const res = await fetch(`${BASE}/bot`, {
+  const res = await fetch(`${BASE}/bot/`, {
     method: 'POST',
     headers: {
       Authorization: `Token ${config.RECALL_API_KEY}`,
@@ -52,7 +65,7 @@ export async function dispatchRecallBot(input: CreateBotInput): Promise<CreateBo
 /** Tell Recall the bot should leave the meeting. */
 export async function leaveRecallBot(botId: string): Promise<void> {
   if (!config.RECALL_API_KEY) return;
-  await fetch(`${BASE}/bot/${botId}/leave_call`, {
+  await fetch(`${BASE}/bot/${botId}/leave_call/`, {
     method: 'POST',
     headers: { Authorization: `Token ${config.RECALL_API_KEY}` },
   });
