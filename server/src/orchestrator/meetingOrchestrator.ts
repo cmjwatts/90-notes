@@ -321,27 +321,24 @@ async function writeDraftToNinety(
   }
   // create path
   if (draft.type === 'issue') {
+    void category;
     return ninety.createIssue({
       teamId: draft.team,
       title: draft.title,
-      notesHtml: draft.notesHtml,
-      category: (category as any) ?? undefined,
+      description: draft.notesHtml,
     });
   }
   if (draft.type === 'todo') {
     return ninety.createTodo({
       teamId: draft.team,
       title: draft.title,
-      dueOn: (extra.dueOn as string) ?? undefined,
+      description: draft.notesHtml,
+      dueDate: (extra.dueOn as string) ?? undefined,
     });
   }
-  // headline
-  return ninety.createHeadline({
-    teamId: draft.team,
-    title: draft.title,
-    description: draft.notesHtml,
-    kind: (extra.kind as any) ?? 'customer',
-  });
+  // Headlines: not in Ninety public API. The orchestrator already persists the draft to Supabase
+  // as 'failed' or pending_review; the recap surfaces them so you can copy them into Ninety manually.
+  return { id: '', url: '' };
 }
 
 // ---- Cold loop timer -----------------------------------------------------------------

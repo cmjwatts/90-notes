@@ -41,24 +41,22 @@ itemsRouter.post('/:id/approve', async (req, res) => {
         result = await ninety.createIssue({
           teamId: draft.team,
           title: draft.title,
-          notesHtml: draft.notesHtml,
-          category: (category as any) ?? undefined,
+          description: draft.notesHtml,
         });
       } else if (draft.type === 'todo') {
         result = await ninety.createTodo({
           teamId: draft.team,
           title: draft.title,
-          dueOn: (extra as any).dueOn,
+          description: draft.notesHtml,
+          dueDate: (extra as any).dueOn,
         });
       } else {
-        result = await ninety.createHeadline({
-          teamId: draft.team,
-          title: draft.title,
-          description: draft.notesHtml,
-          kind: ((extra as any).kind as any) ?? 'customer',
-        });
+        // Headlines not in Ninety public API — captured in Supabase only; mark approved but no Ninety write.
+        result = { id: '', url: '' };
       }
     }
+    // Suppress unused-var TS warning for category which is no longer forwarded to Ninety.
+    void category;
 
     await sb
       .from('meeting_items')
