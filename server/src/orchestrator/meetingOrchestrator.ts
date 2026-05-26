@@ -10,6 +10,7 @@ import {
 import { ninety } from '../integrations/ninety.js';
 import { supabaseAdmin } from '../integrations/supabase.js';
 import { dispatchRecallBot, leaveRecallBot } from '../integrations/recall.js';
+import { createSdkUpload } from '../integrations/recall-dsdk.js';
 import { runHotLoop } from '../llm/hotLoop.js';
 import { runColdLoop } from '../llm/coldLoop.js';
 import { STARTER_PLAYBOOK_TEXT } from '../llm/playbookPrompt.js';
@@ -18,21 +19,24 @@ import type { DraftItem } from '../types.js';
 const BUFFER_FLUSH_MS = 10_000;        // hot loop cadence
 const COLD_LOOP_INTERVAL_MS = 90_000;  // cold loop cadence
 
-/** Start a meeting: dispatch Recall bot, pre-fetch existing items, create session. */
-export async function startMeeting(input: {
-  meetingUrl: string;
+/**
+ * Shared setup for any capture source (bot OR desktop SDK):
+ * insert meeting row, pre-fetch existing Ninety items, create in-memory session,
+ * start the cold loop. Returns the new meetingId + session.
+ */
+async function createMeetingSession(input: {
   teamId: string;
   playbookId: string;
-  botName: string;
-}): Promise<{ meetingId: string; botId: string }> {
-  // Insert meeting row in Supabase
+  meetingUrl: string | null;
+  source: 'bot' | 'desktop';
+}): Promise<{ meetingId: string; session: SessionState }> {
   const sb = supabaseAdmin();
   const { data: row, error } = await sb
     .from('meetings')
     .insert({
       team_id: input.teamId,
       playbook_id: input.playbookId,
-      meeting_url: input.meetingUrl,
+      meeting_url: input.meetingUrl ?? `desktop://${input.source}`,
       status: 'pending',
     })
     .select('id')
@@ -40,7 +44,7 @@ export async function startMeeting(input: {
   if (error) throw new Error(`Supabase insert meeting failed: ${error.message}`);
   const meetingId = row.id as string;
 
-  // Pre-fetch existing items (best-effort — Phase 0 verifies endpoints exist).
+  // Pre-fetch existing items (best-effort).
   let existing: SessionState['existingItems'] = [];
   try {
     const [issues, todos, headlines] = await Promise.all([
@@ -50,14 +54,30 @@ export async function startMeeting(input: {
     ]);
     existing = [...issues, ...todos, ...headlines];
   } catch (e) {
-    console.warn('[startMeeting] could not pre-fetch existing items (likely Phase 0 incomplete):', (e as Error).message);
+    console.warn('[createMeetingSession] could not pre-fetch existing items:', (e as Error).message);
   }
 
-  // Create in-memory session.
   const session = createSession({ meetingId, teamId: input.teamId, playbookId: input.playbookId });
   session.existingItems = existing;
 
-  // Dispatch the bot.
+  startColdLoopTimer(meetingId);
+  return { meetingId, session };
+}
+
+/** Bot mode: dispatch a Recall bot that joins the meeting as a participant. */
+export async function startMeeting(input: {
+  meetingUrl: string;
+  teamId: string;
+  playbookId: string;
+  botName: string;
+}): Promise<{ meetingId: string; botId: string }> {
+  const { meetingId, session } = await createMeetingSession({
+    teamId: input.teamId,
+    playbookId: input.playbookId,
+    meetingUrl: input.meetingUrl,
+    source: 'bot',
+  });
+
   const bot = await dispatchRecallBot({
     meetingUrl: input.meetingUrl,
     botName: input.botName,
@@ -65,12 +85,43 @@ export async function startMeeting(input: {
   });
   session.recallBotId = bot.id;
 
-  await sb.from('meetings').update({ recall_bot_id: bot.id, status: 'live' }).eq('id', meetingId);
-
-  // Kick off the periodic cold loop.
-  startColdLoopTimer(meetingId);
-
+  await supabaseAdmin().from('meetings').update({ recall_bot_id: bot.id, status: 'live' }).eq('id', meetingId);
   return { meetingId, botId: bot.id };
+}
+
+/**
+ * Desktop mode: create a Recall SDK Upload (no bot joins the meeting).
+ * Returns the uploadToken the menubar app passes to RecallAiSdk.startRecording().
+ * Transcripts flow back to /api/recall-webhook via the SDK upload's realtime webhook,
+ * tagged with meeting_id so they reach this session.
+ */
+export async function startDesktopMeeting(input: {
+  teamId: string;
+  playbookId: string;
+}): Promise<{ meetingId: string; uploadToken: string; sdkUploadId: string }> {
+  const { meetingId } = await createMeetingSession({
+    teamId: input.teamId,
+    playbookId: input.playbookId,
+    meetingUrl: null,
+    source: 'desktop',
+  });
+
+  let upload;
+  try {
+    upload = await createSdkUpload({ meetingId });
+  } catch (e) {
+    // Clean up the dangling session + cold-loop timer so we don't leak resources.
+    await endMeeting(meetingId).catch(() => {});
+    await supabaseAdmin().from('meetings').update({ status: 'failed' }).eq('id', meetingId).then(undefined, () => {});
+    throw e;
+  }
+
+  await supabaseAdmin()
+    .from('meetings')
+    .update({ recall_bot_id: upload.id, status: 'live' })
+    .eq('id', meetingId);
+
+  return { meetingId, uploadToken: upload.uploadToken, sdkUploadId: upload.id };
 }
 
 /** Handle one transcript chunk from Recall.ai. Enqueues processing per-meeting. */

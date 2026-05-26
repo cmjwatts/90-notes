@@ -16,6 +16,10 @@ const envSchema = z.object({
   NINETY_API_TOKEN: z.string().optional(),
   NINETY_API_BASE: z.string().url().default('https://api.public.ninety.io/v1'),
 
+  // Shared secret the Mac menubar app sends as a Bearer token on /api/desktop/*.
+  // Optional so the server still boots without desktop mode configured.
+  DESKTOP_API_KEY: z.string().min(16).optional(),
+
   SUPABASE_URL: z.string().url(),
   SUPABASE_ANON_KEY: z.string().min(1),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),

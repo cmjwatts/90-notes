@@ -47,7 +47,9 @@ recallWebhookRouter.post('/', async (req, res) => {
 
   if (event === 'transcript.data' || event === 'transcript.partial_data') {
     const meetingId =
-      envelope?.bot?.metadata?.meeting_id ??
+      envelope?.bot?.metadata?.meeting_id ??                // bot mode
+      envelope?.realtime_endpoint?.metadata?.meeting_id ??  // desktop SDK mode
+      envelope?.sdk_upload?.metadata?.meeting_id ??         // desktop SDK fallback
       envelope?.metadata?.meeting_id;
     if (!meetingId) {
       console.warn('[recall webhook] no meeting_id in metadata; ignoring');
