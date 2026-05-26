@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline';" />
+    <style>
+      :root {
+        --ink: #262626; --ink-2: #58595B; --ink-3: #8a8b8d;
+        --line: #BFC4CE; --line-soft: #DDDFE7;
+        --paper: #fff; --paper-2: #F7F8FB; --paper-3: #F3F3F4;
+        --brand: #2F8BAA; --brand-tint: rgba(47,139,170,0.10);
+        --good: #2F7A4D; --bad: #B14B3B; --bad-tint: rgba(177,75,59,0.10);
+        --r-sm: 6px; --r-md: 10px;
+      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body {
+        font-family: -apple-system, "SF Pro Text", system-ui, sans-serif;
+        font-size: 13px; color: var(--ink); background: var(--paper);
+        height: 100vh; overflow: hidden; user-select: none;
+      }
+      .wrap { display: flex; flex-direction: column; height: 100%; }
+      header {
+        display: flex; align-items: center; gap: 8px;
+        padding: 12px 14px; border-bottom: 1px solid var(--line-soft);
+      }
+      .brand { font-weight: 700; font-size: 15px; letter-spacing: -0.02em; }
+      .brand .n { color: var(--brand); }
+      .gear { margin-left: auto; cursor: pointer; color: var(--ink-3); font-size: 14px; background: none; border: none; }
+      .gear:hover { color: var(--ink); }
+      main { flex: 1; padding: 14px; display: flex; flex-direction: column; gap: 12px; overflow: auto; }
+      .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+      .row { display: flex; align-items: center; gap: 8px; }
+      .muted { color: var(--ink-3); font-size: 12px; }
+      .big-btn {
+        width: 100%; padding: 12px; border-radius: var(--r-md); border: none;
+        font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit;
+        transition: background 120ms ease;
+      }
+      .big-btn.start { background: var(--brand); color: #fff; }
+      .big-btn.start:hover { background: #267590; }
+      .big-btn.stop { background: var(--bad); color: #fff; }
+      .big-btn:disabled { opacity: 0.5; cursor: default; }
+      .link { color: var(--brand); cursor: pointer; background: none; border: none; font: inherit; padding: 0; }
+      .link:hover { text-decoration: underline; }
+      label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; font-weight: 600; color: var(--ink-2); }
+      input, select {
+        font: inherit; font-size: 12px; padding: 7px 9px; border: 1px solid var(--line);
+        border-radius: var(--r-sm); outline: none; background: var(--paper); color: var(--ink);
+      }
+      input:focus, select:focus { border-color: var(--brand); }
+      .err { color: var(--bad); background: var(--bad-tint); padding: 7px 9px; border-radius: var(--r-sm); font-size: 11.5px; }
+      .timer { font-variant-numeric: tabular-nums; font-weight: 600; font-size: 18px; }
+      .recording-pill { display: inline-flex; align-items: center; gap: 6px; color: var(--bad); font-weight: 600; font-size: 12px; }
+      .recording-pill .status-dot { background: var(--bad); animation: blink 1.4s ease-in-out infinite; }
+      @keyframes blink { 50% { opacity: 0.3; } }
+      footer { padding: 8px 14px; border-top: 1px solid var(--line-soft); display: flex; align-items: center; }
+      .hint { background: var(--paper-3); border-left: 2px solid var(--brand); padding: 8px 10px; border-radius: var(--r-sm); font-size: 11px; color: var(--ink-2); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <span class="brand"><span class="n">90</span> notes</span>
+        <button class="gear" id="gear" title="Settings">⚙</button>
+      </header>
+      <main id="main"></main>
+      <footer>
+        <button class="link" id="quit" style="font-size:11px;color:var(--ink-3)">Quit</button>
+      </footer>
+    </div>
+    <script src="popover.js"></script>
+  </body>
+</html>

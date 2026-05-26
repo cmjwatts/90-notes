@@ -1,0 +1,24 @@
+{
+  "name": "@90notes/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "90 notes — Mac menubar app. Captures meeting audio locally via Recall Desktop SDK (no bot joins the call).",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "node build.mjs",
+    "dev": "node build.mjs --watch",
+    "start": "npm run build && electron .",
+    "typecheck": "tsc --noEmit",
+    "dist": "npm run build && electron-builder --mac"
+  },
+  "dependencies": {
+    "@recallai/desktop-sdk": "^2.0.15"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.3"
+  }
+}
