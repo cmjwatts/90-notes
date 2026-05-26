@@ -1,0 +1,39 @@
+appId: io.ninety.ninetynotes
+productName: 90 notes
+copyright: Ninety.io
+
+directories:
+  output: release
+  buildResources: build
+
+# Bundle the compiled app + the native Recall SDK.
+files:
+  - dist/**/*
+  - package.json
+  - node_modules/**/*
+
+# The Recall Desktop SDK ships a native binary that must live outside the asar
+# archive so the OS can execute it.
+asarUnpack:
+  - node_modules/@recallai/desktop-sdk/**/*
+
+mac:
+  category: public.app-category.productivity
+  target:
+    - target: dmg
+      arch:
+        - arm64        # Recall DSDK supports Apple Silicon Macs
+  # Unsigned build for V1 — no Apple Developer membership required.
+  # macOS will show an "unidentified developer" prompt; right-click → Open once.
+  identity: null
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  # Permission usage strings shown in the macOS dialogs.
+  extendInfo:
+    NSMicrophoneUsageDescription: "90 notes records your voice so it can transcribe the meeting."
+    NSCameraUsageDescription: "Not used — 90 notes only records audio."
+    NSAudioCaptureUsageDescription: "90 notes captures the meeting audio from other participants to transcribe the conversation."
+    LSUIElement: 1   # menubar-only app (no Dock icon)
+
+dmg:
+  title: "90 notes"

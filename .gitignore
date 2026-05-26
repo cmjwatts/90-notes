@@ -7,6 +7,8 @@ dist/
 build/
 web/dist/
 server/dist/
+desktop/dist/
+desktop/release/
 .vite/
 .idea/
 .vscode/

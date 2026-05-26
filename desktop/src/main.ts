@@ -6,7 +6,7 @@ import * as sdk from './sdk.js';
 
 let tray: Tray | null = null;
 let popover: BrowserWindow | null = null;
-let config: AppConfig = { backendUrl: '', apiKey: '', defaultTeamId: '', defaultPlaybookId: '' };
+let config: AppConfig = { backendUrl: '', apiKey: '', defaultTeamId: '', defaultPlaybookId: '', permissionsAcknowledged: false };
 let currentMeetingId: string | null = null;
 
 const POPOVER_WIDTH = 320;
@@ -135,6 +135,21 @@ ipcMain.handle('recording:stop', async () => {
 ipcMain.handle('meeting:open', (_e, meetingId: string) => {
   if (!config.backendUrl) return;
   shell.openExternal(`${config.backendUrl}/meeting/${meetingId}`);
+});
+
+ipcMain.handle('permissions:request', async () => {
+  await sdk.requestAllPermissions();
+  return { ok: true };
+});
+
+// Deep-link the user to the exact macOS privacy pane when a permission was denied.
+ipcMain.handle('permissions:openSettings', (_e, pane: string) => {
+  const map: Record<string, string> = {
+    microphone: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone',
+    'screen-recording': 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture',
+    accessibility: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility',
+  };
+  shell.openExternal(map[pane] ?? 'x-apple.systempreferences:com.apple.preference.security?Privacy');
 });
 
 ipcMain.handle('app:quit', () => app.quit());

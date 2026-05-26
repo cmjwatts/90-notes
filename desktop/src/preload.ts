@@ -5,6 +5,7 @@ export interface AppConfig {
   apiKey: string;
   defaultTeamId: string;
   defaultPlaybookId: string;
+  permissionsAcknowledged: boolean;
 }
 
 contextBridge.exposeInMainWorld('api', {
@@ -18,5 +19,7 @@ contextBridge.exposeInMainWorld('api', {
   startRecording: (): Promise<{ meetingId: string }> => ipcRenderer.invoke('recording:start'),
   stopRecording: (): Promise<{ meetingId: string | null }> => ipcRenderer.invoke('recording:stop'),
   openMeeting: (meetingId: string): Promise<void> => ipcRenderer.invoke('meeting:open', meetingId),
+  requestPermissions: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('permissions:request'),
+  openPermissionSettings: (pane: string): Promise<void> => ipcRenderer.invoke('permissions:openSettings', pane),
   quit: (): Promise<void> => ipcRenderer.invoke('app:quit'),
 });

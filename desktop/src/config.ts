@@ -7,9 +7,16 @@ export interface AppConfig {
   apiKey: string;       // DESKTOP_API_KEY
   defaultTeamId: string;
   defaultPlaybookId: string;
+  permissionsAcknowledged: boolean; // user has been through the permission step
 }
 
-const EMPTY: AppConfig = { backendUrl: '', apiKey: '', defaultTeamId: '', defaultPlaybookId: '' };
+const EMPTY: AppConfig = {
+  backendUrl: '',
+  apiKey: '',
+  defaultTeamId: '',
+  defaultPlaybookId: '',
+  permissionsAcknowledged: false,
+};
 
 function configPath(): string {
   return join(app.getPath('userData'), 'config.enc');

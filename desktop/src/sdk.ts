@@ -1,24 +1,30 @@
 /**
- * Recall Desktop SDK wrapper.
+ * Recall Desktop SDK wrapper — REAL integration (verified against the installed
+ * @recallai/desktop-sdk@2.0.15 type definitions in node_modules/.../index.d.ts).
  *
- * SCAFFOLD STATE (task 8): stubbed — simulates the recording lifecycle so we can
- * verify tray/popover/IPC/backend wiring without the native module.
+ * Flow for manual-start desktop audio capture (any meeting / in-person):
+ *   init({ apiUrl })
+ *   requestPermission('microphone' | 'system-audio' | 'accessibility')
+ *   windowId = await prepareDesktopAudioRecording()
+ *   startRecording({ windowId, uploadToken })   // streams to Recall → transcripts webhook to our backend
+ *   stopRecording({ windowId })
  *
- * Task 9 replaces the stub bodies with real calls:
- *   import RecallAiSdk from '@recallai/desktop-sdk';
- *   RecallAiSdk.init({ apiUrl });
- *   await RecallAiSdk.requestPermission('microphone' | 'screen_capture' | 'accessibility');
- *   const windowId = await RecallAiSdk.prepareDesktopAudioRecording();
- *   await RecallAiSdk.startRecording({ windowId, uploadToken });
- *   await RecallAiSdk.stopRecording({ windowId });
- *   RecallAiSdk.addEventListener('recording-started' | 'recording-ended' | ..., cb);
+ * Transcripts are delivered to our backend via the SDK upload's realtime webhook
+ * (configured server-side in recall-dsdk.ts), so we do NOT handle 'realtime-event' here.
  */
+import RecallAiSdk, { type Permission } from '@recallai/desktop-sdk';
 
 export type RecordingState = 'idle' | 'starting' | 'recording' | 'stopping';
 
 let state: RecordingState = 'idle';
 let currentWindowId: string | null = null;
 let onStateChange: ((s: RecordingState) => void) | null = null;
+let initialized = false;
+
+// Region base URL — must match the Recall workspace region (pay-as-you-go = us-west-2).
+const REGION_URL = 'https://us-west-2.recall.ai';
+
+const REQUIRED_PERMISSIONS: Permission[] = ['microphone', 'system-audio', 'accessibility'];
 
 export function getState(): RecordingState {
   return state;
@@ -33,38 +39,67 @@ function setState(s: RecordingState): void {
   onStateChange?.(s);
 }
 
-const REGION_URL = 'https://us-west-2.recall.ai';
-
 export async function initSdk(): Promise<void> {
-  // task 9: RecallAiSdk.init({ apiUrl: REGION_URL });
-  void REGION_URL;
-  console.log('[sdk:stub] init');
+  if (initialized) return;
+  await RecallAiSdk.init({ apiUrl: REGION_URL });
+  initialized = true;
+
+  RecallAiSdk.addEventListener('recording-started', () => setState('recording'));
+  RecallAiSdk.addEventListener('recording-ended', () => {
+    currentWindowId = null;
+    setState('idle');
+  });
+  RecallAiSdk.addEventListener('error', (e) => {
+    console.error('[sdk] error event:', e.type, e.message);
+  });
+  RecallAiSdk.addEventListener('shutdown', () => {
+    initialized = false;
+    setState('idle');
+  });
 }
 
+/** Request mic / system-audio / accessibility. Safe to call repeatedly. */
 export async function requestAllPermissions(): Promise<void> {
-  // task 9: request microphone, screen_capture, accessibility
-  console.log('[sdk:stub] requestAllPermissions');
+  for (const p of REQUIRED_PERMISSIONS) {
+    try {
+      await RecallAiSdk.requestPermission(p);
+    } catch (e) {
+      console.warn(`[sdk] requestPermission(${p}) failed:`, (e as Error).message);
+    }
+  }
 }
 
 export async function startRecording(uploadToken: string): Promise<void> {
   setState('starting');
-  // task 9:
-  //   currentWindowId = await RecallAiSdk.prepareDesktopAudioRecording();
-  //   await RecallAiSdk.startRecording({ windowId: currentWindowId, uploadToken });
-  currentWindowId = `stub-window-${Date.now()}`;
-  console.log('[sdk:stub] startRecording with token', uploadToken.slice(0, 8) + '…');
-  setState('recording');
+  try {
+    // Whole-desktop audio capture — works for any meeting app or in-person.
+    currentWindowId = await RecallAiSdk.prepareDesktopAudioRecording();
+    await RecallAiSdk.startRecording({ windowId: currentWindowId, uploadToken });
+    // State flips to 'recording' on the 'recording-started' event.
+  } catch (e) {
+    setState('idle');
+    currentWindowId = null;
+    throw e;
+  }
 }
 
 export async function stopRecording(): Promise<void> {
+  if (!currentWindowId) {
+    setState('idle');
+    return;
+  }
   setState('stopping');
-  // task 9: if (currentWindowId) await RecallAiSdk.stopRecording({ windowId: currentWindowId });
-  console.log('[sdk:stub] stopRecording', currentWindowId);
-  currentWindowId = null;
-  setState('idle');
+  try {
+    await RecallAiSdk.stopRecording({ windowId: currentWindowId });
+    // State flips to 'idle' on the 'recording-ended' event; force it as a fallback.
+  } finally {
+    currentWindowId = null;
+    setState('idle');
+  }
 }
 
 export function shutdownSdk(): void {
-  // task 9: RecallAiSdk.shutdown();
-  console.log('[sdk:stub] shutdown');
+  if (!initialized) return;
+  RecallAiSdk.shutdown().catch(() => {});
+  initialized = false;
 }

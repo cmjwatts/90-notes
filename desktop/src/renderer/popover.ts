@@ -5,6 +5,7 @@ interface AppConfig {
   apiKey: string;
   defaultTeamId: string;
   defaultPlaybookId: string;
+  permissionsAcknowledged: boolean;
 }
 
 interface StateResp {
@@ -24,6 +25,8 @@ declare global {
       startRecording(): Promise<{ meetingId: string }>;
       stopRecording(): Promise<{ meetingId: string | null }>;
       openMeeting(meetingId: string): Promise<void>;
+      requestPermissions(): Promise<{ ok: boolean }>;
+      openPermissionSettings(pane: string): Promise<void>;
       quit(): Promise<void>;
     };
   }
@@ -33,7 +36,7 @@ const main = document.getElementById('main')!;
 const gear = document.getElementById('gear')!;
 const quitBtn = document.getElementById('quit')!;
 
-let view: 'home' | 'settings' = 'home';
+let view: 'home' | 'settings' | 'permissions' = 'home';
 let recordingStartedAt: number | null = null;
 let timerHandle: number | null = null;
 
@@ -45,11 +48,63 @@ gear.addEventListener('click', () => {
 
 async function render(): Promise<void> {
   const s = await window.api.getState();
-  if (view === 'settings' || !s.configured) {
+  if (view === 'permissions') {
+    renderPermissions(s.config);
+  } else if (view === 'settings' || !s.configured) {
     renderSettings(s.config, !s.configured);
+  } else if (!s.config.permissionsAcknowledged) {
+    renderPermissions(s.config);
   } else {
     renderHome(s);
   }
+}
+
+// ── Permissions step ──────────────────────────────────────────────────────────────
+function renderPermissions(cfg: AppConfig): void {
+  main.innerHTML = '';
+
+  const hint = document.createElement('div');
+  hint.className = 'hint';
+  hint.innerHTML =
+    'To capture your meeting locally, 90 notes needs macOS permissions. ' +
+    'Click <b>Grant access</b> — macOS will ask you to allow each one. ' +
+    'For audio from other people, allow <b>Screen&nbsp;Recording</b>.';
+  main.appendChild(hint);
+
+  const list = document.createElement('div');
+  list.className = 'muted';
+  list.style.lineHeight = '1.7';
+  list.innerHTML = '• Microphone (your voice)<br/>• Screen Recording (other participants’ audio)<br/>• Accessibility (speaker labels)';
+  main.appendChild(list);
+
+  const grant = document.createElement('button');
+  grant.className = 'big-btn start';
+  grant.textContent = 'Grant access';
+  grant.addEventListener('click', async () => {
+    grant.disabled = true;
+    grant.textContent = 'Check the macOS dialogs…';
+    await window.api.requestPermissions();
+    grant.disabled = false;
+    grant.textContent = 'Grant access';
+  });
+  main.appendChild(grant);
+
+  const openSettings = document.createElement('button');
+  openSettings.className = 'link';
+  openSettings.textContent = 'Open macOS Privacy settings';
+  openSettings.addEventListener('click', () => window.api.openPermissionSettings('screen-recording'));
+  main.appendChild(openSettings);
+
+  const done = document.createElement('button');
+  done.className = 'big-btn start';
+  done.style.background = 'var(--good)';
+  done.textContent = "I've granted them — continue";
+  done.addEventListener('click', async () => {
+    await window.api.saveConfig({ ...cfg, permissionsAcknowledged: true });
+    view = 'home';
+    render();
+  });
+  main.appendChild(done);
 }
 
 // ── Home view ──────────────────────────────────────────────────────────────────
@@ -170,13 +225,15 @@ function renderSettings(cfg: AppConfig, firstRun: boolean): void {
       apiKey: keyLabel.input.value.trim(),
       defaultTeamId: teamSelect.value,
       defaultPlaybookId: cfg.defaultPlaybookId || 'pb-l10-ops',
+      permissionsAcknowledged: cfg.permissionsAcknowledged,
     };
     if (!next.backendUrl || !next.apiKey || !next.defaultTeamId) {
       showError('Fill in all three fields (and load + pick a team).');
       return;
     }
     await window.api.saveConfig(next);
-    view = 'home';
+    // First run → go to the permissions step; otherwise back home.
+    view = next.permissionsAcknowledged ? 'home' : 'permissions';
     render();
   });
   main.appendChild(save);
