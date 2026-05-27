@@ -189,7 +189,10 @@ function renderSettings(cfg: AppConfig, firstRun: boolean): void {
     main.appendChild(hint);
   }
 
-  const urlLabel = field('90 notes web address', 'url', cfg.backendUrl, 'https://nine0-notes.onrender.com');
+  // Default the address to the known backend so the field is never blank
+  // (an empty field + a look-alike placeholder caused "Failed to parse URL").
+  const DEFAULT_BACKEND = 'https://nine0-notes.onrender.com';
+  const urlLabel = field('90 notes web address', 'url', cfg.backendUrl || DEFAULT_BACKEND, DEFAULT_BACKEND);
   const keyLabel = field('Access key (DESKTOP_API_KEY)', 'password', cfg.apiKey, '');
   main.appendChild(urlLabel.label);
   main.appendChild(keyLabel.label);
@@ -238,8 +241,8 @@ function renderSettings(cfg: AppConfig, firstRun: boolean): void {
   });
   main.appendChild(save);
 
-  // Auto-load teams if a URL is already present.
-  if (cfg.backendUrl) loadBtn.click();
+  // The URL field is always pre-filled now, so auto-load teams on open.
+  loadBtn.click();
 }
 
 function field(labelText: string, type: string, value: string, placeholder: string) {
