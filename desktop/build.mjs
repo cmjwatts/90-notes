@@ -34,6 +34,8 @@ const targets = [
 ];
 
 cpSync('src/renderer/index.html', 'dist/renderer/index.html');
+// Bundle tray icons next to the compiled main process (loaded via join(__dirname,'assets',...)).
+cpSync('assets', 'dist/assets', { recursive: true });
 
 if (watch) {
   for (const t of targets) {
