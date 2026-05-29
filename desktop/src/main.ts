@@ -153,11 +153,32 @@ ipcMain.handle('recording:state', () => ({
 }));
 
 ipcMain.handle('recording:start', async () => {
-  if (!isConfigured(config)) throw new Error('Not configured');
-  const session = await createSession(config);
-  currentMeetingId = session.meetingId;
-  await sdk.startRecording(session.uploadToken);
-  return { meetingId: session.meetingId };
+  console.log('[main] recording:start invoked');
+  if (!isConfigured(config)) {
+    console.error('[main] recording:start aborted — not configured');
+    throw new Error('Not configured');
+  }
+  try {
+    console.log('[main] creating backend session…');
+    const session = await createSession(config);
+    console.log(`[main] session created meetingId=${session.meetingId} sdkUploadId=${session.sdkUploadId}`);
+    currentMeetingId = session.meetingId;
+
+    console.log('[main] calling sdk.startRecording…');
+    await sdk.startRecording(session.uploadToken);
+    console.log('[main] sdk.startRecording returned (capture started)');
+
+    // Auto-open the Meeting Room view in the user's browser so they can see
+    // the live transcript + items as the meeting runs.
+    const meetingUrl = `${config.backendUrl}/meeting/${session.meetingId}`;
+    console.log(`[main] opening browser: ${meetingUrl}`);
+    shell.openExternal(meetingUrl).catch((e) => console.error('[main] openExternal failed', e));
+
+    return { meetingId: session.meetingId };
+  } catch (e) {
+    console.error('[main] recording:start FAILED:', (e as Error).message);
+    throw e;
+  }
 });
 
 ipcMain.handle('recording:stop', async () => {
