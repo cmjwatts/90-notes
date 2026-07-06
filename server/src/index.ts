@@ -9,6 +9,7 @@ import { recallWebhookRouter } from './webhooks/recall.js';
 import { itemsRouter } from './routes/items.js';
 import { coachRouter } from './routes/coach.js';
 import { ninetyRouter } from './routes/ninety.js';
+import { nudgesRouter } from './routes/nudges.js';
 import { desktopRouter } from './routes/desktop.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -49,6 +50,7 @@ app.use('/api/meetings', requireAppKey, meetingsRouter);
 app.use('/api/items', requireAppKey, itemsRouter);
 app.use('/api/coach', requireAppKey, coachRouter);
 app.use('/api/ninety', requireAppKey, ninetyRouter);
+app.use('/api/nudges', requireAppKey, nudgesRouter);
 app.use('/api/desktop', desktopRouter);
 
 // Serve the built web app in production (Vite outputs to web/dist).

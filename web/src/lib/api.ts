@@ -72,4 +72,7 @@ export const api = {
   idsCoach(meetingId: string, messages: Array<{ role: 'user' | 'assistant'; content: string }>, currentIssueId: string | null) {
     return req<{ reply: string }>('/api/coach/ids', { method: 'POST', body: JSON.stringify({ meetingId, messages, currentIssueId }) });
   },
+  resolveNudge(nudgeId: string, action: 'dropped_down' | 'dismissed') {
+    return req<{ ok: true }>(`/api/nudges/${nudgeId}/resolve`, { method: 'POST', body: JSON.stringify({ action }) });
+  },
 };

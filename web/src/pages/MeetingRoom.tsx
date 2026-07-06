@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { TopBar } from '../components/TopBar.tsx';
 import { IDSWarningBanner } from '../components/IDSWarningBanner.tsx';
+import { TangentNudgeCard } from '../components/TangentNudgeCard.tsx';
 import { TranscriptPane } from '../components/TranscriptPane.tsx';
 import { FocusCard } from '../components/FocusCard.tsx';
 import { ApprovedList } from '../components/ApprovedList.tsx';
@@ -9,7 +10,7 @@ import { CoachFAB } from '../components/CoachFAB.tsx';
 import { CoachBotInput } from '../components/CoachBotInput.tsx';
 import { api } from '../lib/api.ts';
 import { supabase, supabaseEnabled } from '../lib/supabase.ts';
-import type { AgendaSection, IDSInsight, MeetingItem, TranscriptChunk } from '../lib/types.ts';
+import type { AgendaSection, IDSInsight, MeetingItem, MeetingNudge, TranscriptChunk } from '../lib/types.ts';
 import type { TranscriptLine } from '../components/TranscriptPane.tsx';
 import type { MatchCandidate } from '../components/UpdatingExistingIssueStrip.tsx';
 
@@ -24,6 +25,8 @@ export function MeetingRoom() {
   const [transcript, setTranscript] = useState<TranscriptLine[]>([]);
   const [insight, setInsight] = useState<IDSInsight | null>(null);
   const [warningDismissed, setWarningDismissed] = useState(false);
+  const [nudge, setNudge] = useState<MeetingNudge | null>(null);
+  const [nudgeBusy, setNudgeBusy] = useState(false);
   const [section, setSection] = useState<AgendaSection>('segue');
   const [coachOpen, setCoachOpen] = useState(false);
   const [jumpKey, setJumpKey] = useState<string | null>(null);
@@ -35,7 +38,7 @@ export function MeetingRoom() {
     let active = true;
 
     (async () => {
-      const [{ data: rows }, { data: chunks }, { data: insights }] = await Promise.all([
+      const [{ data: rows }, { data: chunks }, { data: insights }, { data: nudges }] = await Promise.all([
         supabase.from('meeting_items').select('*').eq('meeting_id', meetingId).order('created_at'),
         supabase.from('transcript_chunks').select('*').eq('meeting_id', meetingId).order('received_at'),
         supabase
@@ -44,11 +47,19 @@ export function MeetingRoom() {
           .eq('meeting_id', meetingId)
           .order('created_at', { ascending: false })
           .limit(1),
+        supabase
+          .from('meeting_nudges')
+          .select('*')
+          .eq('meeting_id', meetingId)
+          .eq('status', 'suggested')
+          .order('created_at', { ascending: false })
+          .limit(1),
       ]);
       if (!active) return;
       if (rows) setItems(rows as MeetingItem[]);
       if (chunks) setTranscript(flattenChunks(chunks as TranscriptChunk[]));
       if (insights?.[0]) setInsight(insights[0] as IDSInsight);
+      setNudge((nudges?.[0] as MeetingNudge | undefined) ?? null);
     })();
 
     const itemsCh = supabase
@@ -80,11 +91,25 @@ export function MeetingRoom() {
       })
       .subscribe();
 
+    const nudgeCh = supabase
+      .channel(`nudge-${meetingId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'meeting_nudges', filter: `meeting_id=eq.${meetingId}` }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          const row = payload.new as MeetingNudge;
+          if (row.status === 'suggested') setNudge(row);
+        } else if (payload.eventType === 'UPDATE') {
+          const row = payload.new as MeetingNudge;
+          setNudge((prev) => (prev && prev.id === row.id && row.status !== 'suggested' ? null : prev));
+        }
+      })
+      .subscribe();
+
     return () => {
       active = false;
       supabase!.removeChannel(itemsCh);
       supabase!.removeChannel(txCh);
       supabase!.removeChannel(insightCh);
+      supabase!.removeChannel(nudgeCh);
     };
   }, [meetingId]);
 
@@ -145,6 +170,32 @@ export function MeetingRoom() {
     setTimeout(() => setJumpKey(null), 2400);
   }
 
+  async function onNudgeDropDown() {
+    if (!nudge) return;
+    setNudgeBusy(true);
+    try {
+      await api.resolveNudge(nudge.id, 'dropped_down');
+      setNudge(null);
+    } catch (e) {
+      alert(`Drop it down failed: ${(e as Error).message}`);
+    } finally {
+      setNudgeBusy(false);
+    }
+  }
+
+  async function onNudgeDismiss() {
+    if (!nudge) return;
+    setNudgeBusy(true);
+    try {
+      await api.resolveNudge(nudge.id, 'dismissed');
+      setNudge(null);
+    } catch (e) {
+      console.warn(e);
+    } finally {
+      setNudgeBusy(false);
+    }
+  }
+
   const showWarning = insight?.should_warn && insight.warning_copy && !warningDismissed;
 
   // The current issue is the most recent issue-type approved/auto item.
@@ -172,6 +223,15 @@ export function MeetingRoom() {
         />
       )}
 
+      {nudge && (
+        <TangentNudgeCard
+          nudge={nudge}
+          onDropDown={onNudgeDropDown}
+          onDismiss={onNudgeDismiss}
+          busy={nudgeBusy}
+        />
+      )}
+
       <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
         <TranscriptPane lines={transcript} highlightTimeKey={jumpKey} />
 
@@ -184,6 +244,18 @@ export function MeetingRoom() {
             overflow: 'auto',
           }}
         >
+          {section === 'ids' && insight?.current_issue_title && (
+            <div
+              style={{
+                padding: '6px 32px 0',
+                fontSize: 11,
+                color: 'var(--ink-3)',
+              }}
+            >
+              Solving: {insight.current_issue_title}
+            </div>
+          )}
+
           {focusItem ? (
             <FocusCard
               item={focusItem}

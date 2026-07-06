@@ -12,7 +12,7 @@ import { supabaseAdmin } from '../integrations/supabase.js';
 import { dispatchRecallBot, leaveRecallBot } from '../integrations/recall.js';
 import { createSdkUpload } from '../integrations/recall-dsdk.js';
 import { runHotLoop } from '../llm/hotLoop.js';
-import { runColdLoop } from '../llm/coldLoop.js';
+import { runColdLoop, type ColdLoopTangent } from '../llm/coldLoop.js';
 import { STARTER_PLAYBOOK_TEXT } from '../llm/playbookPrompt.js';
 import type { DraftItem } from '../types.js';
 
@@ -422,6 +422,36 @@ async function writeDraftToNinety(
   throw new Error('Headlines are not in the Ninety public API');
 }
 
+// ---- Tangent nudges ------------------------------------------------------------------
+
+const NUDGE_COOLDOWN_MS = 5 * 60_000;   // at most ~1 nudge per 5 min
+const MAX_NUDGES_PER_MEETING = 4;       // hard ceiling per meeting
+const MUTE_AFTER_DISMISSALS = 2;        // two "we're on topic"s → stay quiet the rest of the meeting
+
+/**
+ * Persist a tangent nudge, subject to calibration. A tangent cop that cries wolf
+ * gets muted by week two, so we err heavily toward under-nudging: cooldown, a
+ * per-meeting ceiling, and self-silencing after the leader waves us off twice.
+ */
+async function maybeEmitNudge(meetingId: string, session: SessionState, tangent: ColdLoopTangent): Promise<void> {
+  if (session.dismissedNudgeCount >= MUTE_AFTER_DISMISSALS) return; // they told us to back off
+  if (session.nudgeCount >= MAX_NUDGES_PER_MEETING) return;
+  if (Date.now() - session.lastNudgeAt < NUDGE_COOLDOWN_MS) return;
+
+  session.lastNudgeAt = Date.now();
+  session.nudgeCount += 1;
+
+  await supabaseAdmin().from('meeting_nudges').insert({
+    meeting_id: meetingId,
+    kind: tangent.kind,
+    section: session.currentSection,
+    message: tangent.message,
+    suggested_issue_title: tangent.suggestedIssueTitle,
+    suggested_issue_notes: tangent.suggestedIssueNotes,
+    status: 'suggested',
+  });
+}
+
 // ---- Cold loop timer -----------------------------------------------------------------
 
 const coldTimers = new Map<string, NodeJS.Timeout>();
@@ -437,18 +467,28 @@ function startColdLoopTimer(meetingId: string): void {
     }
     session.lastColdLoopAt = Date.now();
     try {
-      const insight = await runColdLoop({ session, playbookText: STARTER_PLAYBOOK_TEXT });
-      if (!insight) return;
-      await supabaseAdmin().from('ids_insights').insert({
-        meeting_id: meetingId,
-        ids_phase: insight.idsPhase,
-        minutes_on_issue: insight.minutesOnIssue,
-        root_cause_concern: insight.rootCauseConcern,
-        category: insight.category,
-        should_warn: insight.shouldWarn,
-        warning_copy: insight.warningCopy,
-        coaching_suggestions: insight.coachingSuggestions,
-      });
+      const out = await runColdLoop({ session, playbookText: STARTER_PLAYBOOK_TEXT });
+
+      // Keep the inferred "current issue" on the session — powers the IDS drift
+      // check and the "Solving: X" chip, and un-breaks the existing time-on-issue warning.
+      if (out.currentIssueId !== null) session.currentIssueId = out.currentIssueId;
+      if (out.currentIssueTitle !== null) session.currentIssueTitle = out.currentIssueTitle;
+
+      if (out.insight) {
+        await supabaseAdmin().from('ids_insights').insert({
+          meeting_id: meetingId,
+          ids_phase: out.insight.idsPhase,
+          minutes_on_issue: out.insight.minutesOnIssue,
+          root_cause_concern: out.insight.rootCauseConcern,
+          category: out.insight.category,
+          should_warn: out.insight.shouldWarn,
+          warning_copy: out.insight.warningCopy,
+          coaching_suggestions: out.insight.coachingSuggestions,
+          current_issue_title: session.currentIssueTitle,
+        });
+      }
+
+      if (out.tangent) await maybeEmitNudge(meetingId, session, out.tangent);
     } catch (e) {
       console.error('[coldLoop] error', e);
     }

@@ -17,7 +17,13 @@ export interface SessionState {
   lastHotLoopAt: number;
   lastColdLoopAt: number;
   currentIssueId: string | null;   // which issue the team is on (for IDS)
+  currentIssueTitle: string | null; // human label for the "Solving: X" chip
   minutesOnCurrentIssue: number;
+  // Tangent-nudge calibration (err toward under-nudging — a tangent cop that
+  // cries wolf gets muted by week two).
+  lastNudgeAt: number;
+  nudgeCount: number;
+  dismissedNudgeCount: number;
 }
 
 export interface TranscriptLine {
@@ -44,10 +50,21 @@ export function createSession(input: Pick<SessionState, 'meetingId' | 'teamId' |
     lastHotLoopAt: 0,
     lastColdLoopAt: 0,
     currentIssueId: null,
+    currentIssueTitle: null,
     minutesOnCurrentIssue: 0,
+    lastNudgeAt: 0,
+    nudgeCount: 0,
+    dismissedNudgeCount: 0,
   };
   sessions.set(input.meetingId, s);
   return s;
+}
+
+/** The leader dismissed a tangent nudge ("we're on topic"). Two dismissals mute
+ *  tangent nudges for the rest of the meeting — they're telling us the calibration is off. */
+export function recordNudgeDismissed(meetingId: string): void {
+  const s = sessions.get(meetingId);
+  if (s) s.dismissedNudgeCount += 1;
 }
 
 export function endSession(meetingId: string): void {

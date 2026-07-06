@@ -96,9 +96,27 @@ create table if not exists ids_insights (
   should_warn          boolean,
   warning_copy         text,
   coaching_suggestions jsonb,
+  current_issue_title  text,                    -- inferred "Solving: X" issue during IDS
   created_at           timestamptz not null default now()
 );
+-- For existing databases created before this change, run:
+-- alter table ids_insights add column if not exists current_issue_title text;
 create index if not exists idx_insights_meeting on ids_insights(meeting_id, created_at);
+
+-- ───────── Tangent nudges (cold loop "drop it down" suggestions) ─────────────────
+create table if not exists meeting_nudges (
+  id                    uuid primary key default gen_random_uuid(),
+  meeting_id            uuid not null references meetings(id) on delete cascade,
+  kind                  text not null,          -- 'tangent_reporting' | 'tangent_ids_drift'
+  section               text,                    -- agenda section when the tangent was caught
+  message               text not null,           -- the nudge copy shown to the leader
+  suggested_issue_title text,                     -- draft Issue to "drop down" to the Issues List
+  suggested_issue_notes text,
+  status                text not null default 'suggested', -- suggested | dropped_down | dismissed
+  created_at            timestamptz not null default now(),
+  resolved_at           timestamptz
+);
+create index if not exists idx_nudges_meeting on meeting_nudges(meeting_id, created_at);
 
 -- ───────── Cost ledger ──────────────────────────────────────────────────────────
 create table if not exists meeting_cost_events (
@@ -127,6 +145,7 @@ alter publication supabase_realtime add table meeting_items;
 alter publication supabase_realtime add table transcript_chunks;
 alter publication supabase_realtime add table ids_insights;
 alter publication supabase_realtime add table coach_messages;
+alter publication supabase_realtime add table meeting_nudges;
 
 -- ───────── RLS (single-tenant V1: permissive; tighten later) ────────────────────
 alter table meetings enable row level security;
@@ -134,6 +153,7 @@ alter table meeting_items enable row level security;
 alter table transcript_chunks enable row level security;
 alter table coach_messages enable row level security;
 alter table ids_insights enable row level security;
+alter table meeting_nudges enable row level security;
 alter table playbooks enable row level security;
 alter table playbook_sections enable row level security;
 alter table playbook_examples enable row level security;
@@ -147,7 +167,7 @@ declare
 begin
   for t in
     select unnest(array[
-      'meetings','meeting_items','transcript_chunks','coach_messages','ids_insights',
+      'meetings','meeting_items','transcript_chunks','coach_messages','ids_insights','meeting_nudges',
       'playbooks','playbook_sections','playbook_examples','meeting_cost_events','manual_edit_diffs'
     ])
   loop
