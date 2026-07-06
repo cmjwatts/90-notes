@@ -47,12 +47,13 @@ async function createMeetingSession(input: {
   // Pre-fetch existing items (best-effort).
   let existing: SessionState['existingItems'] = [];
   try {
-    const [issues, todos, headlines] = await Promise.all([
+    const [issues, todos, rocks, headlines] = await Promise.all([
       ninety.listOpenIssues(input.teamId),
       ninety.listOpenTodos(input.teamId),
+      ninety.listOpenRocks(input.teamId),
       ninety.listUpcomingHeadlines(input.teamId),
     ]);
-    existing = [...issues, ...todos, ...headlines];
+    existing = [...issues, ...todos, ...rocks, ...headlines];
   } catch (e) {
     console.warn('[createMeetingSession] could not pre-fetch existing items:', (e as Error).message);
   }
@@ -207,7 +208,7 @@ async function handleToolCall(
         matchConfidence: 0,
         capturedAtSeconds: captureSec,
       };
-      await persistDraft(meetingId, draft, call.input.category ?? null);
+      await persistDraft(meetingId, draft, call.input.category ?? null, { interval: call.input.interval });
       break;
     }
     case 'append_to_issue': {
@@ -405,6 +406,7 @@ async function writeDraftToNinety(
       teamId: draft.team,
       title: draft.title,
       description: draft.notesHtml,
+      interval: (extra.interval as 'short-term' | 'long-term' | undefined) ?? undefined,
     });
   }
   if (draft.type === 'todo') {

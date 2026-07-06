@@ -56,6 +56,17 @@ interface RawTodo {
   createdDate?: string;
 }
 
+interface RawRock {
+  _id?: string; id?: string;
+  title?: string; description?: string;
+  teamId?: string;
+  archived?: boolean; completed?: boolean; deleted?: boolean;
+  createdDate?: string; dueDate?: string;
+  // Off-track state is what makes a Rock worth turning into an Issue. Ninety has
+  // used a few field names for this over time, so read defensively.
+  statusCode?: string; status?: string; onTrack?: boolean;
+}
+
 class NinetyClient {
   private headers(): Record<string, string> {
     if (!config.NINETY_API_TOKEN) {
@@ -105,6 +116,26 @@ class NinetyClient {
     return (body.items ?? [])
       .filter((t) => !t.completed && !t.archived && !t.deleted)
       .map((t) => toExistingItem(t, 'todo'));
+  }
+
+  async listOpenRocks(teamId: string): Promise<ExistingItem[]> {
+    const res = await fetch(`${config.NINETY_API_BASE}/rocks/query`, {
+      method: 'POST',
+      headers: this.headers(),
+      body: JSON.stringify({ teamId, pageSize: 50, sortField: 'createdDate', sortDirection: 'DESC' }),
+    });
+    if (!res.ok) throw new Error(`Ninety POST /rocks/query failed: ${res.status} ${await res.text()}`);
+    const body = (await res.json()) as { items?: RawRock[] };
+    return (body.items ?? [])
+      .filter((r) => !r.completed && !r.archived && !r.deleted)
+      .map((r) => {
+        const item = toExistingItem(r, 'rock');
+        const track = rockTrackLabel(r);
+        // Surface on/off-track in the context line so Claude can spot Rocks worth
+        // turning into Issues during rock review.
+        if (track) item.ageDescription = item.ageDescription ? `${track} · ${item.ageDescription}` : track;
+        return item;
+      });
   }
 
   /** Headlines aren't in the public API; return [] so the orchestrator skips matching. */
@@ -204,16 +235,29 @@ class NinetyClient {
   }
 }
 
-function toExistingItem(raw: RawIssue | RawTodo, type: ItemType): ExistingItem {
+function toExistingItem(raw: RawIssue | RawTodo | RawRock, type: ItemType): ExistingItem {
   const id = (raw._id ?? raw.id)!;
+  const resource =
+    type === 'issue' ? 'issues' : type === 'todo' ? 'todos' : type === 'rock' ? 'rocks' : 'headlines';
   return {
     id,
     type,
     title: raw.title ?? '(untitled)',
     team: raw.teamId ?? '',
     ageDescription: humanAge(raw.createdDate),
-    ninetyUrl: ninetyAppUrl(type === 'issue' ? 'issues' : type === 'todo' ? 'todos' : 'headlines', id),
+    ninetyUrl: ninetyAppUrl(resource, id),
   };
+}
+
+/** Best-effort on/off-track label for a Rock across Ninety's field-name variants. */
+function rockTrackLabel(r: RawRock): string | null {
+  if (typeof r.onTrack === 'boolean') return r.onTrack ? 'on-track' : 'off-track';
+  const raw = (r.statusCode ?? r.status ?? '').toString().toLowerCase();
+  if (!raw) return null;
+  if (raw.includes('off')) return 'off-track';
+  if (raw.includes('on')) return 'on-track';
+  if (raw.includes('complete') || raw.includes('done')) return 'complete';
+  return raw; // surface whatever Ninety returned rather than dropping it
 }
 
 function ninetyAppUrl(resource: string, id: string): string {
