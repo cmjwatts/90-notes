@@ -241,14 +241,38 @@ async function handleToolCall(
       break;
     }
     case 'mark_todo_complete': {
-      await sb.from('meeting_items').insert({
-        meeting_id: meetingId,
-        type: 'todo',
-        status: explicit ? 'auto_appended' : 'pending_review',
-        draft: { action: 'mark_complete', todo_id: call.input.todo_id },
-        matched_item_id: call.input.todo_id,
-        captured_at_seconds: captureSec,
-      });
+      if (explicit) {
+        let status: 'auto_appended' | 'failed' = 'auto_appended';
+        let ninetyId: string | null = null;
+        let ninetyUrl: string | null = null;
+        try {
+          const result = await ninety.markTodoDone(call.input.todo_id);
+          ninetyId = result.id;
+          ninetyUrl = result.url;
+        } catch (e) {
+          console.error('[handleToolCall] markTodoDone failed', e);
+          status = 'failed';
+        }
+        await sb.from('meeting_items').insert({
+          meeting_id: meetingId,
+          type: 'todo',
+          status,
+          draft: { action: 'mark_complete', todo_id: call.input.todo_id },
+          matched_item_id: call.input.todo_id,
+          captured_at_seconds: captureSec,
+          ninety_id: ninetyId,
+          ninety_url: ninetyUrl,
+        });
+      } else {
+        await sb.from('meeting_items').insert({
+          meeting_id: meetingId,
+          type: 'todo',
+          status: 'pending_review',
+          draft: { action: 'mark_complete', todo_id: call.input.todo_id },
+          matched_item_id: call.input.todo_id,
+          captured_at_seconds: captureSec,
+        });
+      }
       break;
     }
     case 'create_headline': {
@@ -323,8 +347,12 @@ async function persistDraft(
 
   // Decide initial status. Explicit + (no match OR match without category=conversion) → auto-write to Ninety.
   const isAppend = !!draft.matchedItemId;
-  const willAuto = draft.explicit;
-  let status: 'pending_review' | 'auto_created' | 'auto_appended' | 'failed' = willAuto
+  // Headlines aren't in the Ninety public API — surface in the recap for manual copy.
+  const isUnwritableHeadlineCreate = draft.type === 'headline' && !isAppend;
+  const willAuto = draft.explicit && !isUnwritableHeadlineCreate;
+  let status: 'pending_review' | 'auto_created' | 'auto_appended' | 'failed' = isUnwritableHeadlineCreate
+    ? 'pending_review'
+    : willAuto
     ? isAppend
       ? 'auto_appended'
       : 'auto_created'
@@ -387,9 +415,9 @@ async function writeDraftToNinety(
       dueDate: (extra.dueOn as string) ?? undefined,
     });
   }
-  // Headlines: not in Ninety public API. The orchestrator already persists the draft to Supabase
-  // as 'failed' or pending_review; the recap surfaces them so you can copy them into Ninety manually.
-  return { id: '', url: '' };
+  // Headlines: not in Ninety public API. persistDraft short-circuits the create path before
+  // this is ever reached — throwing here guards against a future regression silently faking success.
+  throw new Error('Headlines are not in the Ninety public API');
 }
 
 // ---- Cold loop timer -----------------------------------------------------------------

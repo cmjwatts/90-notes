@@ -24,6 +24,11 @@ export async function dispatchRecallBot(input: CreateBotInput): Promise<CreateBo
   if (!config.RECALL_API_KEY) {
     throw new Error('RECALL_API_KEY not configured — set it in .env before starting a meeting.');
   }
+  // Webhook secret travels as a token query param — Recall realtime endpoints
+  // may not sign payloads, so this is our primary auth control (see webhooks/recall.ts).
+  const url = new URL(config.RECALL_WEBHOOK_URL);
+  url.searchParams.set('token', config.RECALL_WEBHOOK_SECRET);
+
   const body = {
     bot_name: input.botName,
     meeting_url: input.meetingUrl,
@@ -41,8 +46,9 @@ export async function dispatchRecallBot(input: CreateBotInput): Promise<CreateBo
       realtime_endpoints: [
         {
           type: 'webhook' as const,
-          url: config.RECALL_WEBHOOK_URL,
-          events: ['transcript.data', 'transcript.partial_data'],
+          url: url.toString(),
+          // Finals only — transcript.partial_data caused duplicate transcript text downstream.
+          events: ['transcript.data'],
         },
       ],
     },

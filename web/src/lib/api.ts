@@ -1,10 +1,38 @@
 const API_BASE = import.meta.env.VITE_API_BASE ?? '';
 
+// The deployed API is protected by a shared secret (APP_API_KEY). We remember it in
+// the browser so the user only types it once; a 401 means it's missing/wrong.
+const APP_KEY_STORAGE = 'ninety-notes:app-key';
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
-  });
+  const doFetch = () => {
+    const key = localStorage.getItem(APP_KEY_STORAGE);
+    return fetch(`${API_BASE}${path}`, {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(key ? { Authorization: `Bearer ${key}` } : {}),
+        ...(init?.headers ?? {}),
+      },
+    });
+  };
+
+  let res = await doFetch();
+
+  // On 401, prompt for the app password, store it, and retry once.
+  if (res.status === 401) {
+    const entered = window.prompt('This app is protected. Enter the app password (APP_API_KEY):');
+    if (!entered) {
+      throw new Error(`API ${path} 401: unauthorized (no app password entered)`);
+    }
+    localStorage.setItem(APP_KEY_STORAGE, entered);
+    res = await doFetch();
+    if (res.status === 401) {
+      localStorage.removeItem(APP_KEY_STORAGE);
+      throw new Error(`API ${path} 401: app password rejected`);
+    }
+  }
+
   if (!res.ok) {
     let detail = '';
     try { detail = await res.text(); } catch { /* ignore */ }

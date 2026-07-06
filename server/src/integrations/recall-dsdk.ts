@@ -25,6 +25,11 @@ export async function createSdkUpload(input: { meetingId: string }): Promise<Cre
     throw new Error('RECALL_API_KEY not configured — required to create a desktop SDK upload.');
   }
 
+  // Webhook secret travels as a token query param — Recall realtime endpoints
+  // may not sign payloads, so this is our primary auth control (see webhooks/recall.ts).
+  const url = new URL(config.RECALL_WEBHOOK_URL);
+  url.searchParams.set('token', config.RECALL_WEBHOOK_SECRET);
+
   const body = {
     recording_config: {
       transcript: {
@@ -35,8 +40,9 @@ export async function createSdkUpload(input: { meetingId: string }): Promise<Cre
       realtime_endpoints: [
         {
           type: 'webhook',
-          url: config.RECALL_WEBHOOK_URL,
-          events: ['transcript.data', 'transcript.partial_data'],
+          url: url.toString(),
+          // Finals only — transcript.partial_data caused duplicate transcript text downstream.
+          events: ['transcript.data'],
           // metadata travels back on every event so the webhook can route to the session.
           metadata: { meeting_id: input.meetingId },
         },

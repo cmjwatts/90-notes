@@ -1,5 +1,13 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
+
+// Load the repo-root .env regardless of cwd — npm workspace scripts run with
+// cwd=server/, so a bare `import 'dotenv/config'` never found it. Real env vars
+// (e.g. Render's) always win: dotenv never overrides values already set.
+dotenv.config({ path: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.env') });
+dotenv.config(); // also pick up a cwd-local .env if one exists
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
@@ -19,6 +27,10 @@ const envSchema = z.object({
   // Shared secret the Mac menubar app sends as a Bearer token on /api/desktop/*.
   // Optional so the server still boots without desktop mode configured.
   DESKTOP_API_KEY: z.string().min(16).optional(),
+
+  // Shared secret the web app sends as a Bearer token on /api/* (except health, webhook, desktop).
+  // Optional so local dev still boots without it.
+  APP_API_KEY: z.string().min(12).optional(),
 
   SUPABASE_URL: z.string().url(),
   SUPABASE_ANON_KEY: z.string().min(1),
@@ -44,6 +56,7 @@ function loadConfig(): Config {
       'NODE_ENV', 'PORT', 'PUBLIC_BASE_URL', 'ANTHROPIC_API_KEY',
       'RECALL_API_KEY', 'RECALL_REGION', 'RECALL_WEBHOOK_URL', 'RECALL_WEBHOOK_SECRET',
       'NINETY_API_TOKEN', 'NINETY_API_BASE',
+      'APP_API_KEY',
       'SUPABASE_URL', 'SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_ROLE_KEY',
     ];
     console.error(' Env vars detected (name : length in chars, or MISSING):');
