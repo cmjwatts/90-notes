@@ -2,22 +2,24 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase.ts';
 import { TypeChip } from '../components/TypeChip.tsx';
-import type { MeetingItem, TranscriptChunk } from '../lib/types.ts';
+import type { MeetingItem, MeetingNudge, TranscriptChunk } from '../lib/types.ts';
 
 export function Recap() {
   const { meetingId = '' } = useParams();
   const [items, setItems] = useState<MeetingItem[]>([]);
   const [chunks, setChunks] = useState<TranscriptChunk[]>([]);
   const [cost, setCost] = useState<{ in: number; cached: number; out: number }>({ in: 0, cached: 0, out: 0 });
+  const [nudges, setNudges] = useState<MeetingNudge[]>([]);
 
   useEffect(() => {
     if (!supabase) return;
     let active = true;
     (async () => {
-      const [{ data: rows }, { data: ch }, { data: events }] = await Promise.all([
+      const [{ data: rows }, { data: ch }, { data: events }, { data: nudgeRows }] = await Promise.all([
         supabase.from('meeting_items').select('*').eq('meeting_id', meetingId).order('created_at'),
         supabase.from('transcript_chunks').select('*').eq('meeting_id', meetingId).order('received_at'),
         supabase.from('meeting_cost_events').select('*').eq('meeting_id', meetingId),
+        supabase.from('meeting_nudges').select('*').eq('meeting_id', meetingId),
       ]);
       if (!active) return;
       if (rows) setItems(rows as MeetingItem[]);
@@ -31,6 +33,7 @@ export function Recap() {
         }
         setCost(c);
       }
+      if (nudgeRows) setNudges(nudgeRows as MeetingNudge[]);
     })();
     return () => { active = false; };
   }, [meetingId]);
@@ -40,6 +43,9 @@ export function Recap() {
 
   // Rough USD estimate using public Sonnet 4.6 pricing: $3/M input, $0.30/M cached read, $15/M output.
   const estimatedUsd = ((cost.in - cost.cached) * 3 + cost.cached * 0.3 + cost.out * 15) / 1_000_000;
+
+  const tangentsCaught = nudges.length;
+  const tangentsDroppedDown = nudges.filter((n) => n.status === 'dropped_down').length;
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -94,6 +100,14 @@ export function Recap() {
               <Stat label="Estimated USD" value={`$${estimatedUsd.toFixed(3)}`} />
             </div>
           </Card>
+
+          {tangentsCaught > 0 && (
+            <Card title="Tangents">
+              <div style={{ fontSize: 12.5, color: 'var(--ink)' }}>
+                {tangentsCaught} tangent{tangentsCaught === 1 ? '' : 's'} caught · {tangentsDroppedDown} dropped to the Issues List
+              </div>
+            </Card>
+          )}
 
           <Card title="Transcript">
             <div style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 8 }}>

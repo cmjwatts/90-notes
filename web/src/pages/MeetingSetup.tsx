@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { api } from '../lib/api.ts';
+import { api, getNinetyToken, setNinetyToken } from '../lib/api.ts';
 
 interface NamedRef { id: string; name: string }
 
@@ -11,6 +11,7 @@ export function MeetingSetup() {
   const [teamsErr, setTeamsErr] = useState<string | null>(null);
   const [loadingTeams, setLoadingTeams] = useState(true);
 
+  const [ninetyToken, setNinetyTokenState] = useState(getNinetyToken());
   const [meetingUrl, setMeetingUrl] = useState('');
   const [teamId, setTeamId] = useState('');
   const [playbookId, setPlaybookId] = useState('');
@@ -18,25 +19,31 @@ export function MeetingSetup() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      try {
-        const [t, p] = await Promise.all([api.listTeams(), api.listPlaybooks()]);
-        if (!active) return;
-        setTeams(t.teams);
-        setPlaybooks(p.playbooks);
-        if (t.teams[0]) setTeamId(t.teams[0].id);
-        if (p.playbooks[0]) setPlaybookId(p.playbooks[0].id);
-      } catch (e) {
-        if (!active) return;
-        setTeamsErr((e as Error).message);
-      } finally {
-        if (active) setLoadingTeams(false);
-      }
-    })();
-    return () => { active = false; };
+  // Loads teams + playbooks using whatever Ninety token is currently saved in the browser.
+  const loadData = useCallback(async () => {
+    setLoadingTeams(true);
+    setTeamsErr(null);
+    try {
+      const [t, p] = await Promise.all([api.listTeams(), api.listPlaybooks()]);
+      setTeams(t.teams);
+      setPlaybooks(p.playbooks);
+      setTeamId(t.teams[0]?.id ?? '');
+      if (p.playbooks[0]) setPlaybookId(p.playbooks[0].id);
+    } catch (e) {
+      setTeams([]);
+      setTeamId('');
+      setTeamsErr((e as Error).message);
+    } finally {
+      setLoadingTeams(false);
+    }
   }, []);
+
+  useEffect(() => { void loadData(); }, [loadData]);
+
+  function onConnect() {
+    setNinetyToken(ninetyToken);      // persist to this browser only
+    void loadData();                  // re-fetch teams with the new token
+  }
 
   async function onStart(e: React.FormEvent) {
     e.preventDefault();
@@ -111,6 +118,36 @@ export function MeetingSetup() {
             <div style={{ fontSize: 20, fontWeight: 500, marginTop: 4 }}>Paste your Zoom URL, pick a playbook, go.</div>
           </div>
 
+          <Field label="Your Ninety token">
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input
+                type="password"
+                value={ninetyToken}
+                onChange={(e) => setNinetyTokenState(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onConnect(); } }}
+                placeholder="pat_…"
+                autoComplete="off"
+                spellCheck={false}
+                style={{ ...inputStyle, flex: 1 }}
+              />
+              <button
+                type="button"
+                onClick={onConnect}
+                disabled={loadingTeams}
+                className="btn"
+                style={{ padding: '8px 14px', fontSize: 12, whiteSpace: 'nowrap' }}
+              >
+                {loadingTeams ? 'Connecting…' : 'Connect'}
+              </button>
+            </div>
+            <span style={{ fontSize: 10.5, color: 'var(--ink-3)', marginTop: 2 }}>
+              Your personal Ninety token. Stored only in this browser — items write to the workspace it
+              belongs to. {!loadingTeams && !teamsErr && teams.length > 0 && (
+                <strong style={{ color: 'var(--brand)' }}>Connected · {teams.length} team{teams.length === 1 ? '' : 's'}.</strong>
+              )}
+            </span>
+          </Field>
+
           <Field label="Zoom URL">
             <input
               type="url"
@@ -157,7 +194,7 @@ export function MeetingSetup() {
                 borderLeft: '2px solid var(--warn)',
               }}
             >
-              Couldn't load teams from Ninety: <strong>{teamsErr}</strong>. The Ninety API endpoint or auth probably needs verification (Phase 0). Meeting will still try to start — but items won't write to Ninety until this resolves.
+              Couldn't load teams from Ninety: <strong>{teamsErr}</strong>. Check your Ninety token above — it may be missing, expired, or invalid. Paste a fresh one and click Connect. The meeting will still start, but items won't write to Ninety until this resolves.
             </div>
           )}
 

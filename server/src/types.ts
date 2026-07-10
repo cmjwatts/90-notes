@@ -1,4 +1,6 @@
-export type ItemType = 'issue' | 'todo' | 'headline';
+// 'rock' is read-only context (loaded so Claude can create Issues from off-track
+// Rocks); the app never creates Rocks, so it never appears on a DraftItem.
+export type ItemType = 'issue' | 'todo' | 'headline' | 'rock';
 
 export type ItemStatus =
   | 'pending_review'   // appears in the Card Stack focus queue

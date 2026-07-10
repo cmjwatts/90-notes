@@ -61,7 +61,24 @@ export interface IDSInsight {
   should_warn: boolean | null;
   warning_copy: string | null;
   coaching_suggestions: string[] | null;
+  current_issue_title: string | null;
   created_at: string;
+}
+
+export type NudgeKind = 'tangent_reporting' | 'tangent_ids_drift';
+export type NudgeStatus = 'suggested' | 'dropped_down' | 'dismissed';
+
+export interface MeetingNudge {
+  id: string;
+  meeting_id: string;
+  kind: NudgeKind;
+  section: AgendaSection | null;
+  message: string;
+  suggested_issue_title: string | null;
+  suggested_issue_notes: string | null;
+  status: NudgeStatus;
+  created_at: string;
+  resolved_at: string | null;
 }
 
 export const SECTION_LABELS: Record<AgendaSection, string> = {

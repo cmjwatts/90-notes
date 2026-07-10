@@ -96,6 +96,7 @@ Open `http://localhost:5173` in your browser. You should see the "Start a meetin
    - `PUBLIC_BASE_URL=https://YOUR-RENDER-DOMAIN.onrender.com` (Render gives you this domain after the first deploy)
    - `RECALL_WEBHOOK_URL=https://YOUR-RENDER-DOMAIN.onrender.com/api/recall-webhook`
    - `VITE_API_BASE` should be empty (frontend and backend share a domain in prod)
+   - `APP_API_KEY` **must** be set in production — it's the password that stops strangers from starting meetings and writing to your Ninety workspace. Generate one with `openssl rand -hex 24`. The browser will prompt you for it the first time you open the app and then remember it.
 5. Deploy. First deploy takes ~5 min.
 6. Visit your Render URL — same Start-a-meeting screen, but now publicly reachable.
 
@@ -162,6 +163,8 @@ curl -H "Authorization: Bearer YOUR_TOKEN" https://api.public.ninety.io/v1/issue
 If that returns a list, the token's good. If not, talk to your engineering team — the public API surface or auth model may differ.
 
 **Realtime updates not flowing in the browser.** Open the browser console (Cmd+Option+I → Console tab) and look for errors. Common culprit: `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` missing on the frontend in production. Render's "Environment" tab needs `VITE_*` keys to be present at *build* time — verify they're saved before deploys.
+
+**The app keeps asking for the password.** The password you're typing doesn't match `APP_API_KEY` in Render's Environment tab. Copy the exact value from Render (or reset it there), then re-enter it when prompted.
 
 ---
 

@@ -15,6 +15,11 @@ const TOOLS = [
         notes_discuss: { type: 'string', description: 'Paraphrased bullets for "Discuss:"' },
         notes_solve: { type: 'string', description: 'Single chosen action for "Solve:"' },
         category: { type: 'string', enum: ['people', 'process', 'system', 'customer', 'strategy'] },
+        interval: {
+          type: 'string',
+          enum: ['short-term', 'long-term'],
+          description: 'Use "long-term" for V/TO / long-term-list issues ("long-term that"). Omit for a normal short-term issue.',
+        },
         explicit: { type: 'boolean' },
         captured_at_seconds: { type: 'number' },
       },

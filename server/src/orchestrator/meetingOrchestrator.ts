@@ -7,12 +7,12 @@ import {
   type SessionState,
   type TranscriptLine,
 } from './sessionState.js';
-import { ninety } from '../integrations/ninety.js';
+import { ninetyFor } from '../integrations/ninety.js';
 import { supabaseAdmin } from '../integrations/supabase.js';
 import { dispatchRecallBot, leaveRecallBot } from '../integrations/recall.js';
 import { createSdkUpload } from '../integrations/recall-dsdk.js';
 import { runHotLoop } from '../llm/hotLoop.js';
-import { runColdLoop } from '../llm/coldLoop.js';
+import { runColdLoop, type ColdLoopTangent } from '../llm/coldLoop.js';
 import { STARTER_PLAYBOOK_TEXT } from '../llm/playbookPrompt.js';
 import type { DraftItem } from '../types.js';
 
@@ -29,7 +29,9 @@ async function createMeetingSession(input: {
   playbookId: string;
   meetingUrl: string | null;
   source: 'bot' | 'desktop';
+  ninetyToken: string | null;
 }): Promise<{ meetingId: string; session: SessionState }> {
+  const nc = ninetyFor(input.ninetyToken);
   const sb = supabaseAdmin();
   const { data: row, error } = await sb
     .from('meetings')
@@ -47,17 +49,23 @@ async function createMeetingSession(input: {
   // Pre-fetch existing items (best-effort).
   let existing: SessionState['existingItems'] = [];
   try {
-    const [issues, todos, headlines] = await Promise.all([
-      ninety.listOpenIssues(input.teamId),
-      ninety.listOpenTodos(input.teamId),
-      ninety.listUpcomingHeadlines(input.teamId),
+    const [issues, todos, rocks, headlines] = await Promise.all([
+      nc.listOpenIssues(input.teamId),
+      nc.listOpenTodos(input.teamId),
+      nc.listOpenRocks(input.teamId),
+      nc.listUpcomingHeadlines(input.teamId),
     ]);
-    existing = [...issues, ...todos, ...headlines];
+    existing = [...issues, ...todos, ...rocks, ...headlines];
   } catch (e) {
     console.warn('[createMeetingSession] could not pre-fetch existing items:', (e as Error).message);
   }
 
-  const session = createSession({ meetingId, teamId: input.teamId, playbookId: input.playbookId });
+  const session = createSession({
+    meetingId,
+    teamId: input.teamId,
+    playbookId: input.playbookId,
+    ninetyToken: input.ninetyToken,
+  });
   session.existingItems = existing;
 
   startColdLoopTimer(meetingId);
@@ -70,12 +78,14 @@ export async function startMeeting(input: {
   teamId: string;
   playbookId: string;
   botName: string;
+  ninetyToken: string | null;
 }): Promise<{ meetingId: string; botId: string }> {
   const { meetingId, session } = await createMeetingSession({
     teamId: input.teamId,
     playbookId: input.playbookId,
     meetingUrl: input.meetingUrl,
     source: 'bot',
+    ninetyToken: input.ninetyToken,
   });
 
   const bot = await dispatchRecallBot({
@@ -98,12 +108,14 @@ export async function startMeeting(input: {
 export async function startDesktopMeeting(input: {
   teamId: string;
   playbookId: string;
+  ninetyToken?: string | null;
 }): Promise<{ meetingId: string; uploadToken: string; sdkUploadId: string }> {
   const { meetingId } = await createMeetingSession({
     teamId: input.teamId,
     playbookId: input.playbookId,
     meetingUrl: null,
     source: 'desktop',
+    ninetyToken: input.ninetyToken ?? null,
   });
 
   let upload;
@@ -207,7 +219,7 @@ async function handleToolCall(
         matchConfidence: 0,
         capturedAtSeconds: captureSec,
       };
-      await persistDraft(meetingId, draft, call.input.category ?? null);
+      await persistDraft(meetingId, draft, call.input.category ?? null, { interval: call.input.interval });
       break;
     }
     case 'append_to_issue': {
@@ -241,14 +253,38 @@ async function handleToolCall(
       break;
     }
     case 'mark_todo_complete': {
-      await sb.from('meeting_items').insert({
-        meeting_id: meetingId,
-        type: 'todo',
-        status: explicit ? 'auto_appended' : 'pending_review',
-        draft: { action: 'mark_complete', todo_id: call.input.todo_id },
-        matched_item_id: call.input.todo_id,
-        captured_at_seconds: captureSec,
-      });
+      if (explicit) {
+        let status: 'auto_appended' | 'failed' = 'auto_appended';
+        let ninetyId: string | null = null;
+        let ninetyUrl: string | null = null;
+        try {
+          const result = await ninetyFor(session.ninetyToken).markTodoDone(call.input.todo_id);
+          ninetyId = result.id;
+          ninetyUrl = result.url;
+        } catch (e) {
+          console.error('[handleToolCall] markTodoDone failed', e);
+          status = 'failed';
+        }
+        await sb.from('meeting_items').insert({
+          meeting_id: meetingId,
+          type: 'todo',
+          status,
+          draft: { action: 'mark_complete', todo_id: call.input.todo_id },
+          matched_item_id: call.input.todo_id,
+          captured_at_seconds: captureSec,
+          ninety_id: ninetyId,
+          ninety_url: ninetyUrl,
+        });
+      } else {
+        await sb.from('meeting_items').insert({
+          meeting_id: meetingId,
+          type: 'todo',
+          status: 'pending_review',
+          draft: { action: 'mark_complete', todo_id: call.input.todo_id },
+          matched_item_id: call.input.todo_id,
+          captured_at_seconds: captureSec,
+        });
+      }
       break;
     }
     case 'create_headline': {
@@ -323,8 +359,12 @@ async function persistDraft(
 
   // Decide initial status. Explicit + (no match OR match without category=conversion) → auto-write to Ninety.
   const isAppend = !!draft.matchedItemId;
-  const willAuto = draft.explicit;
-  let status: 'pending_review' | 'auto_created' | 'auto_appended' | 'failed' = willAuto
+  // Headlines aren't in the Ninety public API — surface in the recap for manual copy.
+  const isUnwritableHeadlineCreate = draft.type === 'headline' && !isAppend;
+  const willAuto = draft.explicit && !isUnwritableHeadlineCreate;
+  let status: 'pending_review' | 'auto_created' | 'auto_appended' | 'failed' = isUnwritableHeadlineCreate
+    ? 'pending_review'
+    : willAuto
     ? isAppend
       ? 'auto_appended'
       : 'auto_created'
@@ -335,7 +375,9 @@ async function persistDraft(
 
   if (willAuto) {
     try {
-      const result = await writeDraftToNinety(draft, category, extra);
+      // Async (webhook-driven) write — resolve the meeting's own token from its session.
+      const nc = ninetyFor(getSession(meetingId)?.ninetyToken ?? null);
+      const result = await writeDraftToNinety(draft, category, extra, nc);
       ninetyId = result.id;
       ninetyUrl = result.url;
     } catch (e) {
@@ -363,33 +405,65 @@ async function writeDraftToNinety(
   draft: DraftItem,
   category: string | null,
   extra: Record<string, unknown>,
+  nc: ReturnType<typeof ninetyFor>,
 ): Promise<{ id: string; url: string }> {
   if (draft.matchedItemId) {
     // append path
-    if (draft.type === 'issue') return ninety.appendIssueNotes(draft.matchedItemId, draft.notesHtml);
-    if (draft.type === 'headline') return ninety.appendHeadlineDescription(draft.matchedItemId, draft.notesHtml);
-    if (draft.type === 'todo') return ninety.markTodoDone(draft.matchedItemId);
+    if (draft.type === 'issue') return nc.appendIssueNotes(draft.matchedItemId, draft.notesHtml);
+    if (draft.type === 'headline') return nc.appendHeadlineDescription(draft.matchedItemId, draft.notesHtml);
+    if (draft.type === 'todo') return nc.markTodoDone(draft.matchedItemId);
   }
   // create path
   if (draft.type === 'issue') {
     void category;
-    return ninety.createIssue({
+    return nc.createIssue({
       teamId: draft.team,
       title: draft.title,
       description: draft.notesHtml,
+      interval: (extra.interval as 'short-term' | 'long-term' | undefined) ?? undefined,
     });
   }
   if (draft.type === 'todo') {
-    return ninety.createTodo({
+    return nc.createTodo({
       teamId: draft.team,
       title: draft.title,
       description: draft.notesHtml,
       dueDate: (extra.dueOn as string) ?? undefined,
     });
   }
-  // Headlines: not in Ninety public API. The orchestrator already persists the draft to Supabase
-  // as 'failed' or pending_review; the recap surfaces them so you can copy them into Ninety manually.
-  return { id: '', url: '' };
+  // Headlines: not in Ninety public API. persistDraft short-circuits the create path before
+  // this is ever reached — throwing here guards against a future regression silently faking success.
+  throw new Error('Headlines are not in the Ninety public API');
+}
+
+// ---- Tangent nudges ------------------------------------------------------------------
+
+const NUDGE_COOLDOWN_MS = 5 * 60_000;   // at most ~1 nudge per 5 min
+const MAX_NUDGES_PER_MEETING = 4;       // hard ceiling per meeting
+const MUTE_AFTER_DISMISSALS = 2;        // two "we're on topic"s → stay quiet the rest of the meeting
+
+/**
+ * Persist a tangent nudge, subject to calibration. A tangent cop that cries wolf
+ * gets muted by week two, so we err heavily toward under-nudging: cooldown, a
+ * per-meeting ceiling, and self-silencing after the leader waves us off twice.
+ */
+async function maybeEmitNudge(meetingId: string, session: SessionState, tangent: ColdLoopTangent): Promise<void> {
+  if (session.dismissedNudgeCount >= MUTE_AFTER_DISMISSALS) return; // they told us to back off
+  if (session.nudgeCount >= MAX_NUDGES_PER_MEETING) return;
+  if (Date.now() - session.lastNudgeAt < NUDGE_COOLDOWN_MS) return;
+
+  session.lastNudgeAt = Date.now();
+  session.nudgeCount += 1;
+
+  await supabaseAdmin().from('meeting_nudges').insert({
+    meeting_id: meetingId,
+    kind: tangent.kind,
+    section: session.currentSection,
+    message: tangent.message,
+    suggested_issue_title: tangent.suggestedIssueTitle,
+    suggested_issue_notes: tangent.suggestedIssueNotes,
+    status: 'suggested',
+  });
 }
 
 // ---- Cold loop timer -----------------------------------------------------------------
@@ -407,18 +481,28 @@ function startColdLoopTimer(meetingId: string): void {
     }
     session.lastColdLoopAt = Date.now();
     try {
-      const insight = await runColdLoop({ session, playbookText: STARTER_PLAYBOOK_TEXT });
-      if (!insight) return;
-      await supabaseAdmin().from('ids_insights').insert({
-        meeting_id: meetingId,
-        ids_phase: insight.idsPhase,
-        minutes_on_issue: insight.minutesOnIssue,
-        root_cause_concern: insight.rootCauseConcern,
-        category: insight.category,
-        should_warn: insight.shouldWarn,
-        warning_copy: insight.warningCopy,
-        coaching_suggestions: insight.coachingSuggestions,
-      });
+      const out = await runColdLoop({ session, playbookText: STARTER_PLAYBOOK_TEXT });
+
+      // Keep the inferred "current issue" on the session — powers the IDS drift
+      // check and the "Solving: X" chip, and un-breaks the existing time-on-issue warning.
+      if (out.currentIssueId !== null) session.currentIssueId = out.currentIssueId;
+      if (out.currentIssueTitle !== null) session.currentIssueTitle = out.currentIssueTitle;
+
+      if (out.insight) {
+        await supabaseAdmin().from('ids_insights').insert({
+          meeting_id: meetingId,
+          ids_phase: out.insight.idsPhase,
+          minutes_on_issue: out.insight.minutesOnIssue,
+          root_cause_concern: out.insight.rootCauseConcern,
+          category: out.insight.category,
+          should_warn: out.insight.shouldWarn,
+          warning_copy: out.insight.warningCopy,
+          coaching_suggestions: out.insight.coachingSuggestions,
+          current_issue_title: session.currentIssueTitle,
+        });
+      }
+
+      if (out.tangent) await maybeEmitNudge(meetingId, session, out.tangent);
     } catch (e) {
       console.error('[coldLoop] error', e);
     }

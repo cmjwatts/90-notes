@@ -29,13 +29,22 @@ export const recallWebhookRouter = Router();
 recallWebhookRouter.post('/', async (req, res) => {
   const raw: Buffer = req.body;
 
-  // Optional: signature check using the shared secret.
-  if (config.RECALL_WEBHOOK_SECRET) {
-    const signature = req.header('x-recall-signature');
-    if (signature) {
-      const expected = crypto.createHmac('sha256', config.RECALL_WEBHOOK_SECRET).update(raw).digest('hex');
-      if (!safeEqual(signature, expected)) return res.status(401).json({ error: 'bad signature' });
-    }
+  // Authentication is required — either check must pass.
+  //   (a) token query param (primary control): the endpoint URL we hand to Recall
+  //       has ?token=<secret> baked in, since realtime endpoints may not sign payloads.
+  //   (b) x-recall-signature header: hex HMAC-SHA256 of the raw body, verified as a
+  //       backup. Verify the exact header name against Recall docs if this is ever
+  //       relied on alone.
+  const token = req.query.token;
+  const tokenOk = typeof token === 'string' && safeEqual(token, config.RECALL_WEBHOOK_SECRET);
+
+  const signature = req.header('x-recall-signature');
+  const expected = crypto.createHmac('sha256', config.RECALL_WEBHOOK_SECRET).update(raw).digest('hex');
+  const signatureOk = typeof signature === 'string' && safeEqual(signature, expected);
+
+  if (!tokenOk && !signatureOk) {
+    console.warn('[recall webhook] unauthenticated request rejected');
+    return res.status(401).json({ error: 'unauthenticated webhook' });
   }
 
   let payload: any;
@@ -45,7 +54,13 @@ recallWebhookRouter.post('/', async (req, res) => {
   const envelope = payload.data ?? payload;        // outer "data" wrapper
   const innerData = envelope?.data ?? envelope;    // inner "data" with words/participant
 
-  if (event === 'transcript.data' || event === 'transcript.partial_data') {
+  // We now subscribe to finals only (transcript.data), but ignore partials defensively
+  // in case they still arrive — they duplicate transcript text downstream.
+  if (event === 'transcript.partial_data') {
+    return res.json({ ok: true, ignored: 'partial' });
+  }
+
+  if (event === 'transcript.data') {
     const meetingId =
       envelope?.bot?.metadata?.meeting_id ??                // bot mode
       envelope?.realtime_endpoint?.metadata?.meeting_id ??  // desktop SDK mode

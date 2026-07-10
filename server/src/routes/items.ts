@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { supabaseAdmin } from '../integrations/supabase.js';
-import { ninety } from '../integrations/ninety.js';
+import { ninetyFor } from '../integrations/ninety.js';
 import type { DraftItem } from '../types.js';
 
 export const itemsRouter = Router();
@@ -29,22 +29,23 @@ itemsRouter.post('/:id/approve', async (req, res) => {
 
   const { draft, mergeMode, category, extra = {} } = parsed.data;
   const sb = supabaseAdmin();
+  const nc = ninetyFor(req.header('x-ninety-token'));
 
   try {
     let result;
     if (mergeMode && draft.matchedItemId) {
-      if (draft.type === 'issue') result = await ninety.appendIssueNotes(draft.matchedItemId, draft.notesHtml);
-      else if (draft.type === 'headline') result = await ninety.appendHeadlineDescription(draft.matchedItemId, draft.notesHtml);
-      else result = await ninety.markTodoDone(draft.matchedItemId);
+      if (draft.type === 'issue') result = await nc.appendIssueNotes(draft.matchedItemId, draft.notesHtml);
+      else if (draft.type === 'headline') result = await nc.appendHeadlineDescription(draft.matchedItemId, draft.notesHtml);
+      else result = await nc.markTodoDone(draft.matchedItemId);
     } else {
       if (draft.type === 'issue') {
-        result = await ninety.createIssue({
+        result = await nc.createIssue({
           teamId: draft.team,
           title: draft.title,
           description: draft.notesHtml,
         });
       } else if (draft.type === 'todo') {
-        result = await ninety.createTodo({
+        result = await nc.createTodo({
           teamId: draft.team,
           title: draft.title,
           description: draft.notesHtml,
