@@ -9,6 +9,9 @@ export interface SessionState {
   recallBotId: string | null;
   teamId: string;
   playbookId: string;
+  // The Ninety token the meeting was started with, captured so the async (webhook-driven)
+  // hot/cold-loop writes reach the right workspace. In-memory only — never persisted to the DB.
+  ninetyToken: string | null;
   startedAt: number; // ms epoch
   currentSection: AgendaSection;
   existingItems: ExistingItem[];   // cached at meeting start, mutated on new creates
@@ -38,7 +41,9 @@ export function getSession(meetingId: string): SessionState | undefined {
   return sessions.get(meetingId);
 }
 
-export function createSession(input: Pick<SessionState, 'meetingId' | 'teamId' | 'playbookId'>): SessionState {
+export function createSession(
+  input: Pick<SessionState, 'meetingId' | 'teamId' | 'playbookId' | 'ninetyToken'>,
+): SessionState {
   const s: SessionState = {
     ...input,
     recallBotId: null,

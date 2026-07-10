@@ -7,7 +7,7 @@ import {
   type SessionState,
   type TranscriptLine,
 } from './sessionState.js';
-import { ninety } from '../integrations/ninety.js';
+import { ninetyFor } from '../integrations/ninety.js';
 import { supabaseAdmin } from '../integrations/supabase.js';
 import { dispatchRecallBot, leaveRecallBot } from '../integrations/recall.js';
 import { createSdkUpload } from '../integrations/recall-dsdk.js';
@@ -29,7 +29,9 @@ async function createMeetingSession(input: {
   playbookId: string;
   meetingUrl: string | null;
   source: 'bot' | 'desktop';
+  ninetyToken: string | null;
 }): Promise<{ meetingId: string; session: SessionState }> {
+  const nc = ninetyFor(input.ninetyToken);
   const sb = supabaseAdmin();
   const { data: row, error } = await sb
     .from('meetings')
@@ -48,17 +50,22 @@ async function createMeetingSession(input: {
   let existing: SessionState['existingItems'] = [];
   try {
     const [issues, todos, rocks, headlines] = await Promise.all([
-      ninety.listOpenIssues(input.teamId),
-      ninety.listOpenTodos(input.teamId),
-      ninety.listOpenRocks(input.teamId),
-      ninety.listUpcomingHeadlines(input.teamId),
+      nc.listOpenIssues(input.teamId),
+      nc.listOpenTodos(input.teamId),
+      nc.listOpenRocks(input.teamId),
+      nc.listUpcomingHeadlines(input.teamId),
     ]);
     existing = [...issues, ...todos, ...rocks, ...headlines];
   } catch (e) {
     console.warn('[createMeetingSession] could not pre-fetch existing items:', (e as Error).message);
   }
 
-  const session = createSession({ meetingId, teamId: input.teamId, playbookId: input.playbookId });
+  const session = createSession({
+    meetingId,
+    teamId: input.teamId,
+    playbookId: input.playbookId,
+    ninetyToken: input.ninetyToken,
+  });
   session.existingItems = existing;
 
   startColdLoopTimer(meetingId);
@@ -71,12 +78,14 @@ export async function startMeeting(input: {
   teamId: string;
   playbookId: string;
   botName: string;
+  ninetyToken: string | null;
 }): Promise<{ meetingId: string; botId: string }> {
   const { meetingId, session } = await createMeetingSession({
     teamId: input.teamId,
     playbookId: input.playbookId,
     meetingUrl: input.meetingUrl,
     source: 'bot',
+    ninetyToken: input.ninetyToken,
   });
 
   const bot = await dispatchRecallBot({
@@ -99,12 +108,14 @@ export async function startMeeting(input: {
 export async function startDesktopMeeting(input: {
   teamId: string;
   playbookId: string;
+  ninetyToken?: string | null;
 }): Promise<{ meetingId: string; uploadToken: string; sdkUploadId: string }> {
   const { meetingId } = await createMeetingSession({
     teamId: input.teamId,
     playbookId: input.playbookId,
     meetingUrl: null,
     source: 'desktop',
+    ninetyToken: input.ninetyToken ?? null,
   });
 
   let upload;
@@ -247,7 +258,7 @@ async function handleToolCall(
         let ninetyId: string | null = null;
         let ninetyUrl: string | null = null;
         try {
-          const result = await ninety.markTodoDone(call.input.todo_id);
+          const result = await ninetyFor(session.ninetyToken).markTodoDone(call.input.todo_id);
           ninetyId = result.id;
           ninetyUrl = result.url;
         } catch (e) {
@@ -364,7 +375,9 @@ async function persistDraft(
 
   if (willAuto) {
     try {
-      const result = await writeDraftToNinety(draft, category, extra);
+      // Async (webhook-driven) write — resolve the meeting's own token from its session.
+      const nc = ninetyFor(getSession(meetingId)?.ninetyToken ?? null);
+      const result = await writeDraftToNinety(draft, category, extra, nc);
       ninetyId = result.id;
       ninetyUrl = result.url;
     } catch (e) {
@@ -392,17 +405,18 @@ async function writeDraftToNinety(
   draft: DraftItem,
   category: string | null,
   extra: Record<string, unknown>,
+  nc: ReturnType<typeof ninetyFor>,
 ): Promise<{ id: string; url: string }> {
   if (draft.matchedItemId) {
     // append path
-    if (draft.type === 'issue') return ninety.appendIssueNotes(draft.matchedItemId, draft.notesHtml);
-    if (draft.type === 'headline') return ninety.appendHeadlineDescription(draft.matchedItemId, draft.notesHtml);
-    if (draft.type === 'todo') return ninety.markTodoDone(draft.matchedItemId);
+    if (draft.type === 'issue') return nc.appendIssueNotes(draft.matchedItemId, draft.notesHtml);
+    if (draft.type === 'headline') return nc.appendHeadlineDescription(draft.matchedItemId, draft.notesHtml);
+    if (draft.type === 'todo') return nc.markTodoDone(draft.matchedItemId);
   }
   // create path
   if (draft.type === 'issue') {
     void category;
-    return ninety.createIssue({
+    return nc.createIssue({
       teamId: draft.team,
       title: draft.title,
       description: draft.notesHtml,
@@ -410,7 +424,7 @@ async function writeDraftToNinety(
     });
   }
   if (draft.type === 'todo') {
-    return ninety.createTodo({
+    return nc.createTodo({
       teamId: draft.team,
       title: draft.title,
       description: draft.notesHtml,

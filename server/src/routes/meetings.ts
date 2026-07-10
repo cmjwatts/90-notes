@@ -16,7 +16,8 @@ meetingsRouter.post('/start', async (req, res) => {
   const parsed = startSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.format() });
   try {
-    const result = await startMeeting(parsed.data);
+    // Per-user Ninety token rides in the header; captured on the session for later writes.
+    const result = await startMeeting({ ...parsed.data, ninetyToken: req.header('x-ninety-token') ?? null });
     res.json(result);
   } catch (e) {
     console.error('[POST /meetings/start]', e);

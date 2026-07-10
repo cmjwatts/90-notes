@@ -1,15 +1,16 @@
 import { Router } from 'express';
-import { ninety } from '../integrations/ninety.js';
+import { ninetyFor } from '../integrations/ninety.js';
 
 export const ninetyRouter = Router();
 
 /**
  * GET /api/ninety/teams — list the teams this user belongs to in Ninety.
  * Used by the MeetingSetup page to populate the Team dropdown.
+ * Uses the caller's own token (x-ninety-token header) so each user sees their own teams.
  */
-ninetyRouter.get('/teams', async (_req, res) => {
+ninetyRouter.get('/teams', async (req, res) => {
   try {
-    const teams = await ninety.listTeams();
+    const teams = await ninetyFor(req.header('x-ninety-token')).listTeams();
     res.json({ teams });
   } catch (e) {
     console.error('[GET /api/ninety/teams]', e);

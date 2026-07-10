@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { supabaseAdmin } from '../integrations/supabase.js';
-import { ninety } from '../integrations/ninety.js';
+import { ninetyFor } from '../integrations/ninety.js';
 import { recordNudgeDismissed } from '../orchestrator/sessionState.js';
 import type { DraftItem } from '../types.js';
 
@@ -52,7 +52,7 @@ nudgesRouter.post('/:id/resolve', async (req, res) => {
   let ninetyUrl: string | null = null;
   let status: 'auto_created' | 'failed' = 'auto_created';
   try {
-    const result = await ninety.createIssue({ teamId, title, description: notesHtml });
+    const result = await ninetyFor(req.header('x-ninety-token')).createIssue({ teamId, title, description: notesHtml });
     ninetyId = result.id;
     ninetyUrl = result.url;
   } catch (e) {

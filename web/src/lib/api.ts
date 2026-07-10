@@ -4,14 +4,31 @@ const API_BASE = import.meta.env.VITE_API_BASE ?? '';
 // the browser so the user only types it once; a 401 means it's missing/wrong.
 const APP_KEY_STORAGE = 'ninety-notes:app-key';
 
+// Each user brings their OWN Ninety personal access token so their items write to their
+// own Ninety workspace. It lives only in this browser and rides along as a header; the
+// server never stores it. Falls back to the server env token if left blank.
+const NINETY_TOKEN_STORAGE = 'ninety-notes:ninety-token';
+
+export function getNinetyToken(): string {
+  return localStorage.getItem(NINETY_TOKEN_STORAGE) ?? '';
+}
+
+export function setNinetyToken(token: string): void {
+  const trimmed = token.trim();
+  if (trimmed) localStorage.setItem(NINETY_TOKEN_STORAGE, trimmed);
+  else localStorage.removeItem(NINETY_TOKEN_STORAGE);
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const doFetch = () => {
     const key = localStorage.getItem(APP_KEY_STORAGE);
+    const ninetyToken = localStorage.getItem(NINETY_TOKEN_STORAGE);
     return fetch(`${API_BASE}${path}`, {
       ...init,
       headers: {
         'Content-Type': 'application/json',
         ...(key ? { Authorization: `Bearer ${key}` } : {}),
+        ...(ninetyToken ? { 'x-ninety-token': ninetyToken } : {}),
         ...(init?.headers ?? {}),
       },
     });

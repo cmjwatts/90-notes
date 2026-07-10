@@ -68,12 +68,20 @@ interface RawRock {
 }
 
 class NinetyClient {
+  /**
+   * A per-user token (from the browser, via the `x-ninety-token` header / a meeting
+   * session) takes precedence. Falls back to the server-wide env token so single-user
+   * deployments and the desktop app keep working unchanged.
+   */
+  constructor(private readonly token: string | null = null) {}
+
   private headers(): Record<string, string> {
-    if (!config.NINETY_API_TOKEN) {
-      throw new Error('NINETY_API_TOKEN not set — paste it into .env / Render env vars.');
+    const token = this.token ?? config.NINETY_API_TOKEN;
+    if (!token) {
+      throw new Error('No Ninety token — paste yours in the app (or set NINETY_API_TOKEN on the server).');
     }
     return {
-      Authorization: `Bearer ${config.NINETY_API_TOKEN}`,
+      Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
     };
   }
@@ -274,4 +282,14 @@ function humanAge(iso?: string): string {
   return `opened ${weeks} wk${weeks === 1 ? '' : 's'} ago`;
 }
 
+/** Env-token client. Used where there's no per-user context (e.g. the desktop app). */
 export const ninety = new NinetyClient();
+
+/**
+ * Build a Ninety client for a specific user's token. Pass the token the browser sent
+ * (via the `x-ninety-token` header) or the one captured on a meeting session. A null/empty
+ * token falls back to the server-wide env token inside `headers()`.
+ */
+export function ninetyFor(token: string | null | undefined): NinetyClient {
+  return new NinetyClient(token && token.trim() ? token.trim() : null);
+}
